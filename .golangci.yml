@@ -4,12 +4,14 @@ linters-settings:
 linters:
   disable-all: true
   enable:
+  - deadcode
   - errcheck
   - gofmt
   - goimports
   - gosec
   - gocritic
   - golint
+  - misspell
 output:
   uniq-by-line: false
 issues:
@@ -24,6 +26,8 @@ run:
   issues-exit-code: 1
   build-tags:
   - e2e
+  skip-files:
+  - .*/zz_generated.deepcopy.go
   skip-dirs:
   - vendor
   - pkg/client

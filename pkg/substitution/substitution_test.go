@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/tektoncd/pipeline/pkg/substitution"
 	"github.com/tektoncd/pipeline/test/diff"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"knative.dev/pkg/apis"
 )
 
@@ -32,7 +33,7 @@ func TestValidateVariables(t *testing.T) {
 		prefix       string
 		locationName string
 		path         string
-		vars         map[string]struct{}
+		vars         sets.String
 	}
 	for _, tc := range []struct {
 		name          string
@@ -45,9 +46,17 @@ func TestValidateVariables(t *testing.T) {
 			prefix:       "inputs.params",
 			locationName: "step",
 			path:         "taskspec.steps",
-			vars: map[string]struct{}{
-				"baz": {},
-			},
+			vars:         sets.NewString("baz"),
+		},
+		expectedError: nil,
+	}, {
+		name: "valid variable uid",
+		args: args{
+			input:        "--flag=$(context.taskRun.uid)",
+			prefix:       "context.taskRun",
+			locationName: "step",
+			path:         "taskspec.steps",
+			vars:         sets.NewString("uid"),
 		},
 		expectedError: nil,
 	}, {
@@ -57,10 +66,7 @@ func TestValidateVariables(t *testing.T) {
 			prefix:       "inputs.params",
 			locationName: "step",
 			path:         "taskspec.steps",
-			vars: map[string]struct{}{
-				"baz": {},
-				"foo": {},
-			},
+			vars:         sets.NewString("baz", "foo"),
 		},
 		expectedError: nil,
 	}, {
@@ -70,9 +76,7 @@ func TestValidateVariables(t *testing.T) {
 			prefix:       "something",
 			locationName: "step",
 			path:         "taskspec.steps",
-			vars: map[string]struct{}{
-				"baz": {},
-			},
+			vars:         sets.NewString("baz"),
 		},
 		expectedError: nil,
 	}, {
@@ -82,9 +86,7 @@ func TestValidateVariables(t *testing.T) {
 			prefix:       "inputs.params",
 			locationName: "step",
 			path:         "taskspec.steps",
-			vars: map[string]struct{}{
-				"foo": {},
-			},
+			vars:         sets.NewString("foo"),
 		},
 		expectedError: &apis.FieldError{
 			Message: `non-existent variable in "--flag=$(inputs.params.baz)" for step somefield`,
@@ -97,9 +99,7 @@ func TestValidateVariables(t *testing.T) {
 			prefix:       "inputs.params",
 			locationName: "step",
 			path:         "taskspec.steps",
-			vars: map[string]struct{}{
-				"foo": {},
-			},
+			vars:         sets.NewString("foo"),
 		},
 		expectedError: &apis.FieldError{
 			Message: `non-existent variable in "--flag=$(inputs.params.baz) $(input.params.foo)" for step somefield`,
@@ -174,6 +174,24 @@ func TestApplyReplacements(t *testing.T) {
 				t.Errorf("ApplyReplacements() output did not match expected value %s", diff.PrintWantGot(d))
 			}
 		})
+	}
+}
+
+func TestNestedReplacements(t *testing.T) {
+	replacements := map[string]string{
+		// Foo should turn into barbar, which could then expand into bazbaz depending on how this is expanded
+		"foo": "$(bar)$(bar)",
+		"bar": "baz",
+	}
+	input := "$(foo) is cool"
+	expected := "$(bar)$(bar) is cool"
+
+	// Run this test a lot of times to ensure the behavior is deterministic
+	for i := 0; i <= 1000; i++ {
+		got := substitution.ApplyReplacements(input, replacements)
+		if d := cmp.Diff(expected, got); d != "" {
+			t.Errorf("ApplyReplacements() output did not match expected value %s", diff.PrintWantGot(d))
+		}
 	}
 }
 

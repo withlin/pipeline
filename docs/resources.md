@@ -330,7 +330,7 @@ Params that can be added are the following:
     is used. [git checkout][git-checkout] is used to switch to the
     revision, and will result in a detached HEAD in most cases. Use refspec
     along with revision if you want to checkout a particular branch without a
-    detached HEAD. _If no revision is specified, the resource will default to `master`._
+    detached HEAD. _If no revision is specified, the resource inspects remote repository to determine the correct default branch._
 1.  `refspec`: (Optional) specify a git [refspec][git-refspec] to pass to git-fetch.
      Note that if this field is specified, it must specify all refs, branches, tags,
      or commits required to checkout the specified `revision`. An additional fetch
@@ -506,7 +506,10 @@ References (head and base) describe Git references. They are represented as a
 set of json files.
 
 Comments describe a pull request comment. They are represented as a set of json
-files.
+files. Add a file or modify the `Body` field in an existing json comment file to
+interact with the PR. Files with json extension will be parsed as such.
+The content of any comments file(s) with other/no extensions will be treated as
+body field of the comment.
 
 Other pull request information can be found in `pr.json`. This is a read-only
 resource. Users should use other subresources (labels, comments, etc) to
@@ -653,7 +656,7 @@ If no value is specified for `targetPath`, it will default to
 _Please check the builder tool used on how to pass this path to create the
 output file._
 
-The `taskRun` will include the image digest in the `resourcesResult` field that
+The `taskRun` will include the image digest and URL in the `resourcesResult` field that
 is part of the `taskRun.Status`
 
 for example:
@@ -1112,7 +1115,7 @@ They also present challenges from a documentation perspective:
 So what are PipelineResources still good for?  We think we've identified some of the most important things:
 
 1. You can augment `Task`-only workflows with `PipelineResources` that, without them, can only be done with `Pipelines`.
-    - For example, let's say you want to checkout a git repo for your Task to test. You have two options. First, you could use a `git` PipelineResource and add it directly to your test `Task`. Second, you could write a `Pipeline` that has a `git-clone` `Task` which checks out the code onto a PersistentVolumeClaim `workspace` and then passes that PVC `workspace` to your test `Task`. For a lot of users the second workflow is totally acceptable but for others it isn't. Some of the most noteable reasons we've heard are:
+    - For example, let's say you want to checkout a git repo for your Task to test. You have two options. First, you could use a `git` PipelineResource and add it directly to your test `Task`. Second, you could write a `Pipeline` that has a `git-clone` `Task` which checks out the code onto a PersistentVolumeClaim `workspace` and then passes that PVC `workspace` to your test `Task`. For a lot of users the second workflow is totally acceptable but for others it isn't. Some of the most notable reasons we've heard are:
       - Some users simply cannot allocate storage on their platform, meaning `PersistentVolumeClaims` are out of the question.
       - Expanding a single `Task` workflow into a `Pipeline` is labor-intensive and feels unnecessary.
 2. Despite being difficult to explain the whole CRD clearly each individual `type` is relatively easy to explain.

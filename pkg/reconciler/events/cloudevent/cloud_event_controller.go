@@ -18,6 +18,7 @@ package cloudevent
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
@@ -26,18 +27,22 @@ import (
 	resource "github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1"
 	"github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1/cloudevent"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	controller "knative.dev/pkg/controller"
+	"knative.dev/pkg/logging"
 )
 
 // InitializeCloudEvents initializes the CloudEvents part of the
 // TaskRunStatus from a slice of PipelineResources
-func InitializeCloudEvents(tr *v1beta1.TaskRun, prs []*resource.PipelineResource) {
+func InitializeCloudEvents(tr *v1beta1.TaskRun, prs map[string]*resource.PipelineResource) {
 	// If there are no cloud event resources, this check will run on every reconcile
 	if len(tr.Status.CloudEvents) == 0 {
 		var targets []string
-		for _, output := range prs {
+		for name, output := range prs {
 			if output.Spec.Type == resource.PipelineResourceTypeCloudEvent {
-				cer, _ := cloudevent.NewResource(output)
+				cer, _ := cloudevent.NewResource(name, output)
 				targets = append(targets, cer.TargetURI)
 			}
 		}
@@ -89,7 +94,7 @@ func SendCloudEvents(tr *v1beta1.TaskRun, ceclient CEClient, logger *zap.Sugared
 		}
 
 		// Send the event.
-		result := ceclient.Send(cloudevents.ContextWithTarget(context.Background(), cloudEventDelivery.Target), *event)
+		result := ceclient.Send(cloudevents.ContextWithTarget(cloudevents.ContextWithRetriesExponentialBackoff(context.Background(), 10*time.Millisecond, 10), cloudEventDelivery.Target), *event)
 
 		// Record the result.
 		eventStatus.SentAt = &metav1.Time{Time: time.Now()}
@@ -107,4 +112,43 @@ func SendCloudEvents(tr *v1beta1.TaskRun, ceclient CEClient, logger *zap.Sugared
 		logger.With(zap.Error(merr)).Errorw("Failed to send events for TaskRun.", zap.Int("count", merr.Len()))
 	}
 	return merr.ErrorOrNil()
+}
+
+// SendCloudEventWithRetries sends a cloud event for the specified resource.
+// It does not block and it perform retries with backoff using the cloudevents
+// sdk-go capabilities.
+// It accepts a runtime.Object to avoid making objectWithCondition public since
+// it's only used within the events/cloudevents packages.
+func SendCloudEventWithRetries(ctx context.Context, object runtime.Object) error {
+	var (
+		o  objectWithCondition
+		ok bool
+	)
+	if o, ok = object.(objectWithCondition); !ok {
+		return errors.New("Input object does not satisfy objectWithCondition")
+	}
+	logger := logging.FromContext(ctx)
+	ceClient := Get(ctx)
+	if ceClient == nil {
+		return errors.New("No cloud events client found in the context")
+	}
+	event, err := EventForObjectWithCondition(o)
+	if err != nil {
+		return err
+	}
+
+	wasIn := make(chan error)
+	go func() {
+		wasIn <- nil
+		if result := ceClient.Send(cloudevents.ContextWithRetriesExponentialBackoff(ctx, 10*time.Millisecond, 10), *event); !cloudevents.IsACK(result) {
+			logger.Warnf("Failed to send cloudevent: %s", result.Error())
+			recorder := controller.GetEventRecorder(ctx)
+			if recorder == nil {
+				logger.Warnf("No recorder in context, cannot emit error event")
+			}
+			recorder.Event(object, corev1.EventTypeWarning, "Cloud Event Failure", result.Error())
+		}
+	}()
+
+	return <-wasIn
 }

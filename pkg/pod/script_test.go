@@ -35,7 +35,7 @@ func TestConvertScripts_NothingToConvert_EmptySidecars(t *testing.T) {
 		Container: corev1.Container{
 			Image: "step-2",
 		},
-	}}, []v1alpha1.Step{})
+	}}, []v1alpha1.Sidecar{})
 	want := []corev1.Container{{
 		Image: "step-1",
 	}, {
@@ -89,7 +89,7 @@ func TestConvertScripts_NothingToConvert_WithSidecar(t *testing.T) {
 		Container: corev1.Container{
 			Image: "step-2",
 		},
-	}}, []v1alpha1.Step{{
+	}}, []v1alpha1.Sidecar{{
 		Container: corev1.Container{
 			Image: "sidecar-1",
 		},
@@ -153,11 +153,10 @@ script-3`,
 			VolumeMounts: preExistingVolumeMounts,
 			Args:         []string{"my", "args"},
 		},
-	}}, []v1alpha1.Step{})
+	}}, []v1alpha1.Sidecar{})
 	wantInit := &corev1.Container{
 		Name:    "place-scripts",
 		Image:   images.ShellImage,
-		TTY:     true,
 		Command: []string{"sh"},
 		Args: []string{"-c", `tmpfile="/tekton/scripts/script-0-9l9zj"
 touch ${tmpfile} && chmod +x ${tmpfile}
@@ -241,7 +240,7 @@ script-3`,
 			VolumeMounts: preExistingVolumeMounts,
 			Args:         []string{"my", "args"},
 		},
-	}}, []v1alpha1.Step{{
+	}}, []v1alpha1.Sidecar{{
 		Script: `#!/bin/sh
 sidecar-1`,
 		Container: corev1.Container{Image: "sidecar-1"},
@@ -249,7 +248,6 @@ sidecar-1`,
 	wantInit := &corev1.Container{
 		Name:    "place-scripts",
 		Image:   images.ShellImage,
-		TTY:     true,
 		Command: []string{"sh"},
 		Args: []string{"-c", `tmpfile="/tekton/scripts/script-0-9l9zj"
 touch ${tmpfile} && chmod +x ${tmpfile}

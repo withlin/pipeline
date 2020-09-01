@@ -15,12 +15,13 @@ weight: 5
     - [Mapping `Workspaces` in `Tasks` to `TaskRuns`](#mapping-workspaces-in-tasks-to-taskruns)
     - [Examples of `TaskRun` definition using `Workspaces`](#examples-of-taskrun-definition-using-workspaces)
   - [Using `Workspaces` in `Pipelines`](#using-workspaces-in-pipelines)
-    - [Affinity Assistant and specifying `Workspace` order in a `Pipeline`](#affinity-assistant-and-specifying-workspace-order-in-a-pipeline)
+    - [Specifying `Workspace` order in a `Pipeline` and Affinity Assistants](#specifying-workspace-order-in-a-pipeline-and-affinity-assistants)
     - [Specifying `Workspaces` in `PipelineRuns`](#specifying-workspaces-in-pipelineruns)
     - [Example `PipelineRun` definition using `Workspaces`](#example-pipelinerun-definition-using-workspaces)
   - [Specifying `VolumeSources` in `Workspaces`](#specifying-volumesources-in-workspaces)
     - [Using `PersistentVolumeClaims` as `VolumeSource`](#using-persistentvolumeclaims-as-volumesource)
     - [Using other types of `VolumeSources`](#using-other-types-of-volumesources)
+- [Using Persistent Volumes within a `PipelineRun`](#using-persistent-volumes-within-a-pipelinerun)
 - [More examples](#more-examples)
 
 ## Overview
@@ -90,13 +91,15 @@ To configure one or more `Workspaces` in a `Task`, add a `workspaces` list with 
 Note the following:
   
 - A `Task` definition can include as many `Workspaces` as it needs. It is recommended that `Tasks` use
-  **at most** one _writable_ `Workspace`.
+  **at most** one _writeable_ `Workspace`.
 - A `readOnly` `Workspace` will have its volume mounted as read-only. Attempting to write
   to a `readOnly` `Workspace` will result in errors and failed `TaskRuns`.
 - `mountPath` can be either absolute or relative. Absolute paths start with `/` and relative paths
   start with the name of a directory. For example, a `mountPath` of `"/foobar"` is  absolute and exposes
   the `Workspace` at `/foobar` inside the `Task's` `Steps`, but a `mountPath` of `"foobar"` is relative and
   exposes the `Workspace` at `/workspace/foobar`.
+- A default `Workspace` configuration can be set for any `Workspaces` that a Task declares but that a TaskRun 
+  does not explicitly provide. It can be set in the `config-defaults` ConfigMap in `default-task-run-workspace-binding`.
     
 Below is an example `Task` definition that includes a `Workspace` called `messages` to which the `Task` writes a message:
 
@@ -135,10 +138,9 @@ its own `workspaces` list. Each entry in the list contains the following fields:
 - `name` - (**required**) The name of the `Workspace` within the `Task` for which the `Volume` is being provided
 - `subPath` - An optional subdirectory on the `Volume` to store data for that `Workspace`
 
-The entry must also include one `VolumeSource`. See [Using `VolumeSources` with `Workspaces`](#specifying-volumesources-in-workspaces) for more information.
+The entry must also include one `VolumeSource`. See [Specifying `VolumeSources` in `Workspaces`](#specifying-volumesources-in-workspaces) for more information.
                
 **Caution:**
-- The `subPath` *must* exist on the `Volume` before the `TaskRun` executes or the execution will fail.
 - The `Workspaces` declared in a `Task` must be available when executing the associated `TaskRun`.
   Otherwise, the `TaskRun` will fail.
 
@@ -158,7 +160,8 @@ spec:
     name: example-task
   workspaces:
     - name: myworkspace # this workspace name must be declared in the Task
-      emptyDir: {}      # emptyDir volumes can be used for TaskRuns, but consider using a PersistentVolumeClaim for PipelineRuns
+      emptyDir: {}      # emptyDir volumes can be used for TaskRuns, 
+                        # but consider using a PersistentVolumeClaim for PipelineRuns
 ```
 For examples of using other types of volume sources, see [Specifying `VolumeSources` in `Workspaces`](#specifying-volumesources-in-workspaces).
 For a more in-depth example, see [`Workspaces` in a `TaskRun`](../examples/v1beta1/taskruns/workspace.yaml).
@@ -205,7 +208,7 @@ Include a `subPath` in the workspace binding to mount different parts of the sam
 
 The `subPath` specified in a `Pipeline` will be appended to any `subPath` specified as part of the `PipelineRun` workspace declaration. So a `PipelineRun` declaring a Workspace with `subPath` of `/foo` for a `Pipeline` who binds it to a `Task` with `subPath` of `/bar` will end up mounting the `Volume`'s `/foo/bar` directory.
 
-#### Affinity Assistant and specifying `Workspace` order in a `Pipeline`
+#### Specifying `Workspace` order in a `Pipeline` and Affinity Assistants
 
 Sharing a `Workspace` between `Tasks` requires you to define the order in which those `Tasks`
 write to or read from that `Workspace`. Use the `runAfter` field in your `Pipeline` definition
@@ -215,11 +218,11 @@ When a `PersistentVolumeClaim` is used as volume source for a `Workspace` in a `
 an Affinity Assistant will be created. The Affinity Assistant acts as a placeholder for `TaskRun` pods
 sharing the same `Workspace`. All `TaskRun` pods within the `PipelineRun` that share the `Workspace`
 will be scheduled to the same Node as the Affinity Assistant pod. This means that Affinity Assistant is incompatible
-with e.g. other affinity rules configured for the `TaskRun` pods. If the `PipepineRun` has a custom
+with e.g. other affinity rules configured for the `TaskRun` pods. If the `PipelineRun` has a custom
 [PodTemplate](pipelineruns.md#specifying-a-pod-template) configured, the `NodeSelector` and `Tolerations` fields
 will also be set on the Affinity Assistant pod. The Affinity Assistant
 is deleted when the `PipelineRun` is completed. The Affinity Assistant can be disabled by setting the
-[disable-affinity-assistant](install.md#customizing-basic-execution-parameters) feature gate.
+[disable-affinity-assistant](install.md#customizing-basic-execution-parameters) feature gate to `true`.
 
 **Note:** Affinity Assistant use [Inter-pod affinity and anti-affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#inter-pod-affinity-and-anti-affinity)
 that require substantial amount of processing which can slow down scheduling in large clusters
@@ -281,8 +284,8 @@ options differ for each type. `Workspaces` support the following fields:
 
 `PersistentVolumeClaim` volumes are a good choice for sharing data among `Tasks` within a `Pipeline`.
 Beware that the [access mode](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes)
-configured for the `PersinstentVolumeClaim` effects how you can use the volume for parallel `Tasks` in a `Pipeline`. See
-[Specifying `workspace` order in a `Pipeline`](#specifying-workspace-order-in-a-pipeline) for more information about this.
+configured for the `PersistentVolumeClaim` effects how you can use the volume for parallel `Tasks` in a `Pipeline`. See
+[Specifying `workspace` order in a `Pipeline` and Affinity Assistants](#specifying-workspace-order-in-a-pipeline-and-affinity-assistants) for more information about this.
 There are two ways of using `PersistentVolumeClaims` as a `VolumeSource`.
 
 ##### `volumeClaimTemplate`
@@ -363,6 +366,46 @@ workspaces:
 
 If you need support for a `VolumeSource` type not listed above, [open an issue](https://github.com/tektoncd/pipeline/issues) or
 a [pull request](https://github.com/tektoncd/pipeline/blob/master/CONTRIBUTING.md).
+
+## Using Persistent Volumes within a `PipelineRun`
+
+When using a workspace with a [`PersistentVolumeClaim` as `VolumeSource`](#using-persistentvolumeclaims-as-volumesource),
+a Kubernetes [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) is used within the `PipelineRun`.
+There are some details that are good to know when using Persistent Volumes within a `PipelineRun`.
+
+### Storage Class
+
+`PersistentVolumeClaims` specify a [Storage Class](https://kubernetes.io/docs/concepts/storage/storage-classes/) for the underlying Persistent Volume. Storage Classes have specific
+characteristics. If a StorageClassName is not specified for your `PersistentVolumeClaim`, the cluster defined _default_
+Storage Class is used. For _regional_ clusters - clusters that typically consist of Nodes located in multiple Availability
+Zones - it is important to know whether your Storage Class is available to all Nodes. Default Storage Classes are typically
+only available to Nodes within *one* Availability Zone. There is usually an option to use a _regional_ Storage Class,
+but they have trade-offs, e.g. you need to pay for multiple volumes since they are replicated and your volume may have 
+substantially higher latency.
+
+When using a workspace backed by a `PersistentVolumeClaim` (typically only available within a Data Center) and the `TaskRun`
+pods can be scheduled to any Availability Zone in a regional cluster, some techniques must be used to avoid deadlock in the `Pipeline`.
+
+Tekton provides an Affinity Assistant that schedules all TaskRun Pods sharing a `PersistentVolumeClaim` to the same
+Node. This avoids deadlocks that can happen when two Pods requiring the same Volume are scheduled to different Availability Zones.
+A volume typically only lives within a single Availability Zone.
+
+### Access Modes
+
+A `PersistentVolumeClaim` specifies an [Access Mode](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes).
+Available Access Modes are `ReadWriteOnce`, `ReadWriteMany` and `ReadOnlyMany`. What Access Mode you can use depend on
+the storage solution that you are using.
+
+* `ReadWriteOnce` is the most commonly available Access Mode. A volume with this Access Mode can only be mounted on one
+  Node at a time. This can be problematic for a `Pipeline` that has parallel `Tasks` that access the volume concurrently.
+  The Affinity Assistant helps with this problem by scheduling all `Tasks` that use the same `PersistentVolumeClaim` to
+  the same Node.
+  
+* `ReadOnlyMany` is read-only and is less common in a CI/CD-pipeline. These volumes often need to be "prepared" with data
+  in some way before use. Dynamically provided volumes can usually not be used in read-only mode.
+
+* `ReadWriteMany` is the least commonly available Access Mode. If you use this access mode and these volumes are available
+  to all Nodes within your cluster, you may want to disable the Affinity Assistant.
 
 ## More examples
 

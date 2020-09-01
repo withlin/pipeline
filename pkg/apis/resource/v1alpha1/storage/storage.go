@@ -27,16 +27,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const (
-	// ArtifactStorageBucketType holds the name of the PipelineResource type for a bucket
-	ArtifactStorageBucketType = "bucket"
-
-	// ArtifactStoragePVCType holds the name of the PipelineResource type for a pvc
-	ArtifactStoragePVCType = "pvc"
-)
-
-// It adds a function to the PipelineResourceInterface for retrieving secrets that are usually
-// needed for storage PipelineResources.
+// PipelineStorageResourceInterface adds a function to the PipelineResourceInterface for retrieving
+// secrets that are usually needed for storage PipelineResources.
 type PipelineStorageResourceInterface interface {
 	v1beta1.PipelineResourceInterface
 	GetSecretParams() []resource.SecretParam
@@ -44,7 +36,7 @@ type PipelineStorageResourceInterface interface {
 
 // NewResource returns an instance of the requested storage subtype, which can be used
 // to add input and output steps and volumes to an executing pod.
-func NewResource(images pipeline.Images, r *resource.PipelineResource) (PipelineStorageResourceInterface, error) {
+func NewResource(name string, images pipeline.Images, r *resource.PipelineResource) (PipelineStorageResourceInterface, error) {
 	if r.Spec.Type != v1beta1.PipelineResourceTypeStorage {
 		return nil, fmt.Errorf("StoreResource: Cannot create a storage resource from a %s Pipeline Resource", r.Spec.Type)
 	}
@@ -52,10 +44,10 @@ func NewResource(images pipeline.Images, r *resource.PipelineResource) (Pipeline
 	for _, param := range r.Spec.Params {
 		if strings.EqualFold(param.Name, "type") {
 			switch {
-			case strings.EqualFold(param.Value, string(resource.PipelineResourceTypeGCS)):
-				return NewGCSResource(images, r)
-			case strings.EqualFold(param.Value, string(resource.PipelineResourceTypeBuildGCS)):
-				return NewBuildGCSResource(images, r)
+			case strings.EqualFold(param.Value, resource.PipelineResourceTypeGCS):
+				return NewGCSResource(name, images, r)
+			case strings.EqualFold(param.Value, resource.PipelineResourceTypeBuildGCS):
+				return NewBuildGCSResource(name, images, r)
 			default:
 				return nil, fmt.Errorf("%s is an invalid or unimplemented PipelineStorageResource", param.Value)
 			}
@@ -66,15 +58,19 @@ func NewResource(images pipeline.Images, r *resource.PipelineResource) (Pipeline
 
 func getStorageVolumeSpec(s PipelineStorageResourceInterface, spec v1beta1.TaskSpec) []corev1.Volume {
 	var storageVol []corev1.Volume
-	mountedSecrets := map[string]string{}
+	mountedSecrets := map[string]struct{}{}
 
 	for _, volume := range spec.Volumes {
-		mountedSecrets[volume.Name] = ""
+		mountedSecrets[volume.Name] = struct{}{}
 	}
 
 	// Map holds list of secrets that are mounted as volumes
 	for _, secretParam := range s.GetSecretParams() {
 		volName := fmt.Sprintf("volume-%s-%s", s.GetName(), secretParam.SecretName)
+		if _, ok := mountedSecrets[volName]; ok {
+			// There is already a volume mounted with this name
+			continue
+		}
 
 		gcsSecretVolume := corev1.Volume{
 			Name: volName,
@@ -84,16 +80,13 @@ func getStorageVolumeSpec(s PipelineStorageResourceInterface, spec v1beta1.TaskS
 				},
 			},
 		}
-
-		if _, ok := mountedSecrets[volName]; !ok {
-			storageVol = append(storageVol, gcsSecretVolume)
-			mountedSecrets[volName] = ""
-		}
+		storageVol = append(storageVol, gcsSecretVolume)
+		mountedSecrets[volName] = struct{}{}
 	}
 	return storageVol
 }
 
-// of the step will include name.
+// CreateDirStep returns a Step that creates a given directory with a given name.
 func CreateDirStep(shellImage string, name, destinationPath string) v1beta1.Step {
 	return v1beta1.Step{Container: corev1.Container{
 		Name:    names.SimpleNameGenerator.RestrictLengthWithRandomSuffix(fmt.Sprintf("create-dir-%s", strings.ToLower(name))),

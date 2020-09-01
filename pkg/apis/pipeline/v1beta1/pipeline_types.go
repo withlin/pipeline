@@ -71,6 +71,10 @@ type PipelineSpec struct {
 	// Results are values that this pipeline can output once run
 	// +optional
 	Results []PipelineResult `json:"results,omitempty"`
+	// Finally declares the list of Tasks that execute just before leaving the Pipeline
+	// i.e. either after all Tasks are finished executing successfully
+	// or after a failure which would result in ending the Pipeline
+	Finally []PipelineTask `json:"finally,omitempty"`
 }
 
 // PipelineResult used to describe the results of a pipeline
@@ -84,6 +88,23 @@ type PipelineResult struct {
 
 	// Value the expression used to retrieve the value
 	Value string `json:"value"`
+}
+
+type PipelineTaskMetadata struct {
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+type EmbeddedTask struct {
+	// +optional
+	Metadata PipelineTaskMetadata `json:"metadata,omitempty"`
+
+	// TaskSpec is a specification of a task
+	// +optional
+	*TaskSpec `json:",inline,omitempty"`
 }
 
 // PipelineTask defines a task in a Pipeline, passing inputs from both
@@ -100,7 +121,7 @@ type PipelineTask struct {
 
 	// TaskSpec is a specification of a task
 	// +optional
-	TaskSpec *TaskSpec `json:"taskSpec,omitempty"`
+	TaskSpec *EmbeddedTask `json:"taskSpec,inline,omitempty"`
 
 	// Conditions is a list of conditions that need to be true for the task to run
 	// +optional
@@ -133,6 +154,10 @@ type PipelineTask struct {
 	// Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
+func (pt *PipelineTask) TaskSpecMetadata() PipelineTaskMetadata {
+	return pt.TaskSpec.Metadata
 }
 
 func (pt PipelineTask) HashKey() string {

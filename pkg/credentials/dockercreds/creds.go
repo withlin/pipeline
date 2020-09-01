@@ -37,15 +37,16 @@ var config basicDocker
 var dockerConfig string
 var dockerCfg string
 
+// AddFlags adds CLI flags that dockercreds supports to a given flag.FlagSet.
+func AddFlags(flagSet *flag.FlagSet) {
+	flags(flagSet)
+}
+
 func flags(fs *flag.FlagSet) {
 	config = basicDocker{make(map[string]entry)}
 	fs.Var(&config, "basic-docker", "List of secret=url pairs.")
 	fs.StringVar(&dockerConfig, "docker-config", "", "Docker config.json secret file.")
 	fs.StringVar(&dockerCfg, "docker-cfg", "", "Docker .dockercfg secret file.")
-}
-
-func init() {
-	flags(flag.CommandLine)
 }
 
 // As the flag is read, this status is populated.
@@ -148,13 +149,13 @@ func (*basicDockerBuilder) MatchingAnnotations(secret *corev1.Secret) []string {
 	return flags
 }
 
-func (*basicDockerBuilder) Write() error {
-	dockerDir := filepath.Join(os.Getenv("HOME"), ".docker")
+// Write builds a .docker/config.json file from a combination
+// of kubernetes docker registry secrets and tekton docker
+// secret entries and writes it to the given directory. If
+// no entries exist then nothing will be written to disk.
+func (*basicDockerBuilder) Write(directory string) error {
+	dockerDir := filepath.Join(directory, ".docker")
 	basicDocker := filepath.Join(dockerDir, "config.json")
-	if err := os.MkdirAll(dockerDir, os.ModePerm); err != nil {
-		return err
-	}
-
 	cf := configFile{Auth: config.Entries}
 	auth := map[string]entry{}
 	if dockerCfg != "" {
@@ -178,6 +179,13 @@ func (*basicDockerBuilder) Write() error {
 	for k, v := range config.Entries {
 		auth[k] = v
 	}
+	if len(auth) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(dockerDir, os.ModePerm); err != nil {
+		return err
+	}
+
 	cf.Auth = auth
 	content, err := json.Marshal(cf)
 	if err != nil {

@@ -17,12 +17,10 @@ limitations under the License.
 package gitcreds
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -73,8 +71,13 @@ func (dc *sshGitConfig) Set(value string) error {
 	return nil
 }
 
-func (dc *sshGitConfig) Write() error {
-	sshDir := filepath.Join(os.Getenv("HOME"), ".ssh")
+// Write puts dc's ssh entries into files in a .ssh directory, under
+// the given directory. If dc has no entries then nothing is written.
+func (dc *sshGitConfig) Write(directory string) error {
+	if len(dc.entries) == 0 {
+		return nil
+	}
+	sshDir := filepath.Join(directory, ".ssh")
 	if err := os.MkdirAll(sshDir, os.ModePerm); err != nil {
 		return err
 	}
@@ -103,7 +106,9 @@ func (dc *sshGitConfig) Write() error {
 			}
 			configEntry += fmt.Sprintf(`    IdentityFile %s
 `, e.path(sshDir))
-			knownHosts = append(knownHosts, e.knownHosts)
+			if e.knownHosts != "" {
+				knownHosts = append(knownHosts, e.knownHosts)
+			}
 		}
 		configEntries = append(configEntries, configEntry)
 	}
@@ -112,9 +117,12 @@ func (dc *sshGitConfig) Write() error {
 	if err := ioutil.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 		return err
 	}
-	knownHostsPath := filepath.Join(sshDir, "known_hosts")
-	knownHostsContent := strings.Join(knownHosts, "\n")
-	return ioutil.WriteFile(knownHostsPath, []byte(knownHostsContent), 0600)
+	if len(knownHosts) > 0 {
+		knownHostsPath := filepath.Join(sshDir, "known_hosts")
+		knownHostsContent := strings.Join(knownHosts, "\n")
+		return ioutil.WriteFile(knownHostsPath, []byte(knownHostsContent), 0600)
+	}
+	return nil
 }
 
 type sshEntry struct {
@@ -127,22 +135,11 @@ func (be *sshEntry) path(sshDir string) string {
 	return filepath.Join(sshDir, "id_"+be.secretName)
 }
 
-func sshKeyScan(domain string) ([]byte, error) {
-	c := exec.Command("ssh-keyscan", domain)
-	var output bytes.Buffer
-	c.Stdout = &output
-	c.Stderr = &output
-	if err := c.Run(); err != nil {
-		return nil, err
-	}
-	return output.Bytes(), nil
-}
-
 func (be *sshEntry) Write(sshDir string) error {
 	return ioutil.WriteFile(be.path(sshDir), []byte(be.privateKey), 0600)
 }
 
-func newSSHEntry(u, secretName string) (*sshEntry, error) {
+func newSSHEntry(url, secretName string) (*sshEntry, error) {
 	secretPath := credentials.VolumeName(secretName)
 
 	pk, err := ioutil.ReadFile(filepath.Join(secretPath, corev1.SSHAuthPrivateKey))
@@ -151,14 +148,10 @@ func newSSHEntry(u, secretName string) (*sshEntry, error) {
 	}
 	privateKey := string(pk)
 
-	kh, err := ioutil.ReadFile(filepath.Join(secretPath, sshKnownHosts))
-	if err != nil {
-		kh, err = sshKeyScan(u)
-		if err != nil {
-			return nil, err
-		}
+	knownHosts := ""
+	if kh, err := ioutil.ReadFile(filepath.Join(secretPath, sshKnownHosts)); err == nil {
+		knownHosts = string(kh)
 	}
-	knownHosts := string(kh)
 
 	return &sshEntry{
 		secretName: secretName,

@@ -28,26 +28,31 @@ import (
 )
 
 const (
-	DefaultTimeoutMinutes         = 60
-	NoTimeoutDuration             = 0 * time.Minute
-	defaultTimeoutMinutesKey      = "default-timeout-minutes"
-	defaultServiceAccountKey      = "default-service-account"
-	defaultManagedByLabelValueKey = "default-managed-by-label-value"
-	DefaultManagedByLabelValue    = "tekton-pipelines"
-	defaultPodTemplateKey         = "default-pod-template"
+	DefaultTimeoutMinutes          = 60
+	NoTimeoutDuration              = 0 * time.Minute
+	defaultTimeoutMinutesKey       = "default-timeout-minutes"
+	defaultServiceAccountKey       = "default-service-account"
+	defaultManagedByLabelValueKey  = "default-managed-by-label-value"
+	DefaultManagedByLabelValue     = "tekton-pipelines"
+	defaultPodTemplateKey          = "default-pod-template"
+	defaultCloudEventsSinkKey      = "default-cloud-events-sink"
+	DefaultCloudEventSinkValue     = ""
+	defaultTaskRunWorkspaceBinding = "default-task-run-workspace-binding"
 )
 
 // Defaults holds the default configurations
 // +k8s:deepcopy-gen=true
 type Defaults struct {
-	DefaultTimeoutMinutes      int
-	DefaultServiceAccount      string
-	DefaultManagedByLabelValue string
-	DefaultPodTemplate         *pod.Template
+	DefaultTimeoutMinutes          int
+	DefaultServiceAccount          string
+	DefaultManagedByLabelValue     string
+	DefaultPodTemplate             *pod.Template
+	DefaultCloudEventsSink         string
+	DefaultTaskRunWorkspaceBinding string
 }
 
-// GetBucketConfigName returns the name of the configmap containing all
-// customizations for the storage bucket.
+// GetDefaultsConfigName returns the name of the configmap containing all
+// defined defaults.
 func GetDefaultsConfigName() string {
 	if e := os.Getenv("CONFIG_DEFAULTS_NAME"); e != "" {
 		return e
@@ -68,7 +73,9 @@ func (cfg *Defaults) Equals(other *Defaults) bool {
 	return other.DefaultTimeoutMinutes == cfg.DefaultTimeoutMinutes &&
 		other.DefaultServiceAccount == cfg.DefaultServiceAccount &&
 		other.DefaultManagedByLabelValue == cfg.DefaultManagedByLabelValue &&
-		other.DefaultPodTemplate.Equals(cfg.DefaultPodTemplate)
+		other.DefaultPodTemplate.Equals(cfg.DefaultPodTemplate) &&
+		other.DefaultCloudEventsSink == cfg.DefaultCloudEventsSink &&
+		other.DefaultTaskRunWorkspaceBinding == cfg.DefaultTaskRunWorkspaceBinding
 }
 
 // NewDefaultsFromMap returns a Config given a map corresponding to a ConfigMap
@@ -76,6 +83,7 @@ func NewDefaultsFromMap(cfgMap map[string]string) (*Defaults, error) {
 	tc := Defaults{
 		DefaultTimeoutMinutes:      DefaultTimeoutMinutes,
 		DefaultManagedByLabelValue: DefaultManagedByLabelValue,
+		DefaultCloudEventsSink:     DefaultCloudEventSinkValue,
 	}
 
 	if defaultTimeoutMin, ok := cfgMap[defaultTimeoutMinutesKey]; ok {
@@ -102,6 +110,13 @@ func NewDefaultsFromMap(cfgMap map[string]string) (*Defaults, error) {
 		tc.DefaultPodTemplate = &podTemplate
 	}
 
+	if defaultCloudEventsSink, ok := cfgMap[defaultCloudEventsSinkKey]; ok {
+		tc.DefaultCloudEventsSink = defaultCloudEventsSink
+	}
+
+	if bindingYAML, ok := cfgMap[defaultTaskRunWorkspaceBinding]; ok {
+		tc.DefaultTaskRunWorkspaceBinding = bindingYAML
+	}
 	return &tc, nil
 }
 

@@ -1,3 +1,18 @@
+/*
+Copyright 2020 The Tekton Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package workspace
 
 import (
@@ -6,6 +21,7 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/names"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (
@@ -75,7 +91,7 @@ func Apply(ts v1beta1.TaskSpec, wb []v1beta1.WorkspaceBinding) (*v1beta1.TaskSpe
 	}
 
 	v := GetVolumes(wb)
-	addedVolumes := map[string]struct{}{}
+	addedVolumes := sets.NewString()
 
 	// Initialize StepTemplate if it hasn't been already
 	if ts.StepTemplate == nil {
@@ -98,9 +114,9 @@ func Apply(ts v1beta1.TaskSpec, wb []v1beta1.WorkspaceBinding) (*v1beta1.TaskSpe
 		})
 
 		// Only add this volume if it hasn't already been added
-		if _, ok := addedVolumes[vv.Name]; !ok {
+		if !addedVolumes.Has(vv.Name) {
 			ts.Volumes = append(ts.Volumes, vv)
-			addedVolumes[vv.Name] = struct{}{}
+			addedVolumes.Insert(vv.Name)
 		}
 	}
 	return &ts, nil

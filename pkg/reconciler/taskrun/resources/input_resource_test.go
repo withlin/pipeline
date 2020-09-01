@@ -17,18 +17,17 @@ limitations under the License.
 package resources
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/apis/resource"
 	resourcev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1"
-	"github.com/tektoncd/pipeline/pkg/artifacts"
-	"github.com/tektoncd/pipeline/pkg/logging"
 	"github.com/tektoncd/pipeline/test/diff"
 	"github.com/tektoncd/pipeline/test/names"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
@@ -37,7 +36,7 @@ import (
 var (
 	images = pipeline.Images{
 		EntrypointImage:          "override-with-entrypoint:latest",
-		NopImage:                 "tianon/true",
+		NopImage:                 "override-with-nop:latest",
 		GitImage:                 "override-with-git:latest",
 		CredsImage:               "override-with-creds:latest",
 		KubeconfigWriterImage:    "override-with-kubeconfig-writer:latest",
@@ -48,7 +47,6 @@ var (
 		ImageDigestExporterImage: "override-with-imagedigest-exporter-image:latest",
 	}
 	inputResourceInterfaces map[string]v1beta1.PipelineResourceInterface
-	logger                  *zap.SugaredLogger
 
 	gitInputs = []v1beta1.TaskResource{{
 		ResourceDeclaration: v1beta1.ResourceDeclaration{
@@ -107,7 +105,6 @@ var (
 )
 
 func setUp() {
-	logger, _ = logging.NewLogger("", "")
 
 	rs := []*resourcev1alpha1.PipelineResource{{
 		ObjectMeta: metav1.ObjectMeta{
@@ -279,7 +276,7 @@ func setUp() {
 	}}
 	inputResourceInterfaces = make(map[string]v1beta1.PipelineResourceInterface)
 	for _, r := range rs {
-		ri, _ := resource.FromType(r, images)
+		ri, _ := resource.FromType(r.Name, r, images)
 		inputResourceInterfaces[r.Name] = ri
 	}
 }
@@ -368,7 +365,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "master", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git"},
@@ -409,7 +406,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-with-branch-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace", "-revision", "branch"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-branch"},
@@ -457,7 +454,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-with-branch-mz4c7",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace", "-revision", "branch"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-branch"},
@@ -467,7 +464,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-with-branch-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/git-duplicate-space"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/git-duplicate-space", "-revision", "branch"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-branch"},
@@ -508,7 +505,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "master", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git"},
@@ -549,7 +546,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-with-branch-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace", "-revision", "branch"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-branch"},
@@ -638,7 +635,7 @@ func TestAddInputResourceToTask(t *testing.T) {
 				Name:       "git-source-the-git-with-sslVerify-false-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/gitspace", "-sslVerify=false"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace", "-revision", "branch", "-sslVerify=false"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-sslVerify-false"},
@@ -840,14 +837,18 @@ gsutil cp gs://fake-bucket/rules.zip /workspace/gcs-dir
 		},
 		wantErr: false,
 		want: &v1beta1.TaskSpec{
-			Steps: []v1beta1.Step{{Container: corev1.Container{
-				Name:    "kubeconfig-9l9zj",
-				Image:   "override-with-kubeconfig-writer:latest",
-				Command: []string{"/ko-app/kubeconfigwriter"},
-				Args: []string{
-					"-clusterConfig", `{"name":"cluster3","type":"cluster","url":"http://10.10.10.10","revision":"","username":"","password":"","namespace":"namespace1","token":"","Insecure":false,"cadata":"bXktY2EtY2VydAo=","clientKeyData":"Y2xpZW50LWtleS1kYXRh","clientCertificateData":"Y2xpZW50LWNlcnRpZmljYXRlLWRhdGE=","secrets":null}`,
+			Steps: []v1beta1.Step{
+				{
+					Container: corev1.Container{
+						Name:    "kubeconfig-9l9zj",
+						Image:   "override-with-kubeconfig-writer:latest",
+						Command: []string{"/ko-app/kubeconfigwriter"},
+						Args: []string{
+							"-clusterConfig", `{"name":"cluster3","type":"cluster","url":"http://10.10.10.10","revision":"","username":"","password":"","namespace":"namespace1","token":"","Insecure":false,"cadata":"bXktY2EtY2VydAo=","clientKeyData":"Y2xpZW50LWtleS1kYXRh","clientCertificateData":"Y2xpZW50LWNlcnRpZmljYXRlLWRhdGE=","secrets":null}`,
+						},
+					},
 				},
-			}}},
+			},
 			Resources: &v1beta1.TaskResources{
 				Inputs: clusterInputs,
 			},
@@ -888,25 +889,29 @@ gsutil cp gs://fake-bucket/rules.zip /workspace/gcs-dir
 		},
 		wantErr: false,
 		want: &v1beta1.TaskSpec{
-			Steps: []v1beta1.Step{{Container: corev1.Container{
-				Name:    "kubeconfig-9l9zj",
-				Image:   "override-with-kubeconfig-writer:latest",
-				Command: []string{"/ko-app/kubeconfigwriter"},
-				Args: []string{
-					"-clusterConfig", `{"name":"cluster2","type":"cluster","url":"http://10.10.10.10","revision":"","username":"","password":"","namespace":"","token":"","Insecure":false,"cadata":null,"clientKeyData":null,"clientCertificateData":null,"secrets":[{"fieldName":"cadata","secretKey":"cadatakey","secretName":"secret1"}]}`,
-				},
-				Env: []corev1.EnvVar{{
-					ValueFrom: &corev1.EnvVarSource{
-						SecretKeyRef: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "secret1",
-							},
-							Key: "cadatakey",
+			Steps: []v1beta1.Step{
+				{
+					Container: corev1.Container{
+						Name:    "kubeconfig-9l9zj",
+						Image:   "override-with-kubeconfig-writer:latest",
+						Command: []string{"/ko-app/kubeconfigwriter"},
+						Args: []string{
+							"-clusterConfig", `{"name":"cluster2","type":"cluster","url":"http://10.10.10.10","revision":"","username":"","password":"","namespace":"","token":"","Insecure":false,"cadata":null,"clientKeyData":null,"clientCertificateData":null,"secrets":[{"fieldName":"cadata","secretKey":"cadatakey","secretName":"secret1"}]}`,
 						},
+						Env: []corev1.EnvVar{{
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "secret1",
+									},
+									Key: "cadatakey",
+								},
+							},
+							Name: "CADATA",
+						}},
 					},
-					Name: "CADATA",
-				}},
-			}}},
+				},
+			},
 			Resources: &v1beta1.TaskResources{
 				Inputs: clusterInputs,
 			},
@@ -941,7 +946,7 @@ gsutil cp gs://fake-bucket/rules.zip /workspace/gcs-dir
 				Name:       "git-source-the-git-with-branch-9l9zj",
 				Image:      "override-with-git:latest",
 				Command:    []string{"/ko-app/git-init"},
-				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-revision", "branch", "-path", "/workspace/gitspace"},
+				Args:       []string{"-url", "https://github.com/grafeas/kritis", "-path", "/workspace/gitspace", "-revision", "branch"},
 				WorkingDir: "/workspace",
 				Env: []corev1.EnvVar{
 					{Name: "TEKTON_RESOURCE_NAME", Value: "the-git-with-branch"},
@@ -957,7 +962,7 @@ gsutil cp gs://fake-bucket/rules.zip /workspace/gcs-dir
 			setUp()
 			names.TestingSeed()
 			fakekubeclient := fakek8s.NewSimpleClientset()
-			got, err := AddInputResource(fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun), logger)
+			got, err := AddInputResource(context.Background(), fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun))
 			if (err != nil) != c.wantErr {
 				t.Errorf("Test: %q; AddInputResource() error = %v, WantErr %v", c.desc, err, c.wantErr)
 			}
@@ -1193,7 +1198,7 @@ gsutil rsync -d -r gs://fake-bucket/rules.zip /workspace/gcs-input-resource
 			names.TestingSeed()
 			setUp()
 			fakekubeclient := fakek8s.NewSimpleClientset()
-			got, err := AddInputResource(fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun), logger)
+			got, err := AddInputResource(context.Background(), fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun))
 			if (err != nil) != c.wantErr {
 				t.Errorf("Test: %q; AddInputResource() error = %v, WantErr %v", c.desc, err, c.wantErr)
 			}
@@ -1416,20 +1421,20 @@ func TestAddStepsToTaskWithBucketFromConfigMap(t *testing.T) {
 	}} {
 		t.Run(c.desc, func(t *testing.T) {
 			setUp()
-			fakekubeclient := fakek8s.NewSimpleClientset(
-				&corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "tekton-pipelines",
-						Name:      artifacts.GetBucketConfigName(),
-					},
-					Data: map[string]string{
-						artifacts.BucketLocationKey:              "gs://fake-bucket",
-						artifacts.BucketServiceAccountSecretName: "gcs-config",
-						artifacts.BucketServiceAccountSecretKey:  "my-key",
-					},
-				},
-			)
-			got, err := AddInputResource(fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun), logger)
+			fakekubeclient := fakek8s.NewSimpleClientset()
+			bucketConfig, err := config.NewArtifactBucketFromMap(map[string]string{
+				config.BucketLocationKey:                 "gs://fake-bucket",
+				config.BucketServiceAccountSecretNameKey: "gcs-config",
+				config.BucketServiceAccountSecretKeyKey:  "my-key",
+			})
+			if err != nil {
+				t.Fatalf("Test: %q; Error setting up bucket config = %v", c.desc, err)
+			}
+			configs := config.Config{
+				ArtifactBucket: bucketConfig,
+			}
+			ctx := config.ToContext(context.Background(), &configs)
+			got, err := AddInputResource(ctx, fakekubeclient, images, c.task.Name, &c.task.Spec, c.taskRun, mockResolveTaskResources(c.taskRun))
 			if err != nil {
 				t.Errorf("Test: %q; AddInputResource() error = %v", c.desc, err)
 			}
@@ -1452,7 +1457,7 @@ func mockResolveTaskResources(taskRun *v1beta1.TaskRun) map[string]v1beta1.Pipel
 			i = inputResourceInterfaces[r.ResourceRef.Name]
 			resolved[r.Name] = i
 		case r.ResourceSpec != nil:
-			i, _ = resource.FromType(&resourcev1alpha1.PipelineResource{
+			i, _ = resource.FromType(r.Name, &resourcev1alpha1.PipelineResource{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: r.Name,
 				},

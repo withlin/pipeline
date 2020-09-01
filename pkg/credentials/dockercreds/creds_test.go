@@ -45,7 +45,7 @@ func TestFlagHandling(t *testing.T) {
 	}
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	flags(fs)
+	AddFlags(fs)
 	err := fs.Parse([]string{
 		"-basic-docker=foo=https://us.gcr.io",
 	})
@@ -54,7 +54,7 @@ func TestFlagHandling(t *testing.T) {
 	}
 
 	os.Setenv("HOME", credentials.VolumePath)
-	if err := NewBuilder().Write(); err != nil {
+	if err := NewBuilder().Write(credentials.VolumePath); err != nil {
 		t.Fatalf("Write() = %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestFlagHandlingTwice(t *testing.T) {
 	}
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	flags(fs)
+	AddFlags(fs)
 	err := fs.Parse([]string{
 		"-basic-docker=foo=https://us.gcr.io",
 		"-basic-docker=bar=https://eu.gcr.io",
@@ -104,7 +104,7 @@ func TestFlagHandlingTwice(t *testing.T) {
 	}
 
 	os.Setenv("HOME", credentials.VolumePath)
-	if err := NewBuilder().Write(); err != nil {
+	if err := NewBuilder().Write(credentials.VolumePath); err != nil {
 		t.Fatalf("Write() = %v", err)
 	}
 
@@ -253,7 +253,7 @@ func TestMultipleFlagHandling(t *testing.T) {
 	}
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	flags(fs)
+	AddFlags(fs)
 	err := fs.Parse([]string{
 		"-basic-docker=foo=https://us.gcr.io",
 		"-docker-config=bar",
@@ -264,7 +264,7 @@ func TestMultipleFlagHandling(t *testing.T) {
 	}
 
 	os.Setenv("HOME", credentials.VolumePath)
-	if err := NewBuilder().Write(); err != nil {
+	if err := NewBuilder().Write(credentials.VolumePath); err != nil {
 		t.Fatalf("Write() = %v", err)
 	}
 
@@ -277,5 +277,30 @@ func TestMultipleFlagHandling(t *testing.T) {
 	expected := `{"auths":{"https://index.docker.io/v1":{"auth":"fooisbar"},"https://my.registry/v1":{"auth":"fooisbaz"},"https://us.gcr.io":{"username":"bar","password":"baz","auth":"YmFyOmJheg==","email":"not@val.id"}}}`
 	if string(b) != expected {
 		t.Errorf("got: %v, wanted: %v", string(b), expected)
+	}
+}
+
+// TestNoAuthProvided confirms that providing zero secrets results in no docker
+// credential file being written to disk.
+func TestNoAuthProvided(t *testing.T) {
+	credentials.VolumePath, _ = ioutil.TempDir("", "")
+	fooDir := credentials.VolumeName("foo")
+	if err := os.MkdirAll(fooDir, os.ModePerm); err != nil {
+		t.Fatalf("os.MkdirAll(%s) = %v", fooDir, err)
+	}
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	AddFlags(fs)
+	err := fs.Parse([]string{})
+	if err != nil {
+		t.Fatalf("flag.CommandLine.Parse() = %v", err)
+	}
+	os.Setenv("HOME", credentials.VolumePath)
+	if err := NewBuilder().Write(credentials.VolumePath); err != nil {
+		t.Fatalf("Write() = %v", err)
+	}
+	_, err = ioutil.ReadFile(filepath.Join(credentials.VolumePath, ".docker", "config.json"))
+	if err == nil || !os.IsNotExist(err) {
+		t.Errorf("expected does not exist error but received: %v", err)
 	}
 }

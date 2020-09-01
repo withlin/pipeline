@@ -28,6 +28,8 @@ spec:
       type: image
     - name: builtEntrypointImage
       type: image
+    - name: builtNopImage
+      type: image
     - name: builtKubeconfigWriterImage
       type: image
     - name: builtCredsInitImage
@@ -71,11 +73,16 @@ spec:
       set -ex
 
       cat <<EOF > /workspace/go/src/github.com/tektoncd/pipeline/.ko.yaml
-      # By default ko will build images on top of distroless
+      # This matches the value configured in .ko.yaml
+      defaultBaseImage: gcr.io/distroless/static:nonroot
       baseImageOverrides:
         $(inputs.params.pathToProject)/$(outputs.resources.builtCredsInitImage.url): $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/build-base:latest
         $(inputs.params.pathToProject)/$(outputs.resources.builtGitInitImage.url): $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/build-base:latest
-        $(inputs.params.pathToProject)/$(outputs.resources.builtEntrypointImage.url): busybox # image should have shell in $PATH
+
+        # These match values configured in .ko.yaml
+        $(inputs.params.pathToProject)/$(outputs.resources.builtEntrypointImage.url): gcr.io/distroless/base:debug-nonroot
+        $(inputs.params.pathToProject)/$(outputs.resources.builtGcsFetcherImage.url): gcr.io/distroless/static:latest
+        $(inputs.params.pathToProject)/$(outputs.resources.builtPullRequestInitImage.url): gcr.io/distroless/static:latest
       baseBuildOverrides:
         $(inputs.params.pathToProject)/$(outputs.resources.builtControllerImage.url):
           flags:
@@ -111,13 +118,16 @@ spec:
       value: "off"
     - name: GOFLAGS
       value: "-mod=vendor"
-    - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
-      value: /secret/release.json
+    - name: GOOGLE_APPLICATION_CREDENTIALS
+      value: "/secret/release.json"
     script: |
       #!/usr/bin/env bash
       set -ex
 
-      # Auth with CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+      # Activate service account
+      gcloud auth activate-service-account --key-file=${GOOGLE_APPLICATION_CREDENTIALS}
+
+      # Setup docker-auth
       gcloud auth configure-docker
 
       # ko requires this variable to be set in order to set image creation timestamps correctly https://github.com/google/go-containerregistry/pull/146
@@ -134,13 +144,13 @@ spec:
       # include it. As of 9/20/2019, this amounts to about 11MB of additional
       # data in each image.
       TMPDIR=$(mktemp -d)
-      tar cvfz ${TMPDIR}/source.tar.gz vendor/
+      tar cfz ${TMPDIR}/source.tar.gz vendor/
       for d in cmd/*; do
         ln -s ${TMPDIR}/source.tar.gz ${d}/kodata/
       done
 
       # Rewrite "devel" to inputs.params.versionTag
-      sed -i -e 's/\(pipeline.tekton.dev\/release\): "devel"/\1: "$(inputs.params.versionTag)"/g' -e 's/\(version\): "devel"/\1: "$(inputs.params.versionTag)"/g' /workspace/go/src/github.com/tektoncd/pipeline/config/*.yaml
+      sed -i -e 's/\(pipeline.tekton.dev\/release\): "devel"/\1: "$(inputs.params.versionTag)"/g' -e 's/\(app.kubernetes.io\/version\): "devel"/\1: "$(inputs.params.versionTag)"/g' -e 's/\(version\): "devel"/\1: "$(inputs.params.versionTag)"/g' /workspace/go/src/github.com/tektoncd/pipeline/config/*.yaml
 
       OUTPUT_BUCKET_RELEASE_DIR="/workspace/output/bucket/previous/$(inputs.params.versionTag)"
 
@@ -179,6 +189,7 @@ spec:
       REGIONS=(us eu asia)
       IMAGES=(
         $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/$(outputs.resources.builtEntrypointImage.url):$(inputs.params.versionTag)
+        $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/$(outputs.resources.builtNopImage.url):$(inputs.params.versionTag)
         $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/$(outputs.resources.builtKubeconfigWriterImage.url):$(inputs.params.versionTag)
         $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/$(outputs.resources.builtCredsInitImage.url):$(inputs.params.versionTag)
         $(inputs.params.imageRegistry)/$(inputs.params.pathToProject)/$(outputs.resources.builtGitInitImage.url):$(inputs.params.versionTag)

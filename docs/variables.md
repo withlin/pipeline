@@ -6,7 +6,7 @@ weight: 15
 -->
 # Variable Substitutions Supported by `Tasks` and `Pipelines`
 
-This page documents the variable substitions supported by `Tasks` and `Pipelines`.
+This page documents the variable substitutions supported by `Tasks` and `Pipelines`.
 
 ## Variables available in a `Pipeline`
 
@@ -14,6 +14,11 @@ This page documents the variable substitions supported by `Tasks` and `Pipelines
 | -------- | ----------- |
 | `params.<param name>` | The value of the parameter at runtime. |
 | `tasks.<taskName>.results.<resultName>` | The value of the `Task's` result. Can alter `Task` execution order within a `Pipeline`.) |
+| `context.pipelineRun.name` | The name of the `PipelineRun` that this `Pipeline` is running in. |
+| `context.pipelineRun.namespace` | The namespace of the `PipelineRun` that this `Pipeline` is running in. |
+| `context.pipelineRun.uid` | The uid of the `PipelineRun` that this `Pipeline` is running in. |
+| `context.pipeline.name` | The name of this `Pipeline` . |
+
 
 ## Variables available in a `Task`
 
@@ -26,7 +31,11 @@ This page documents the variable substitions supported by `Tasks` and `Pipelines
 | `workspaces.<workspaceName>.path` | The path to the mounted `Workspace`. |
 | `workspaces.<workspaceName>.claim` | The name of the `PersistentVolumeClaim` specified as a volume source for the `Workspace`. Empty string for other volume types. |
 | `workspaces.<workspaceName>.volume` | The name of the volume populating the `Workspace`. |
-| `credentials.path` | The path to the credentials written by the `creds-init` init container. |
+| `credentials.path` | The path to credentials injected from Secrets with matching annotations. |
+| `context.taskRun.name` | The name of the `TaskRun` that this `Task` is running in. |
+| `context.taskRun.namespace` | The namespace of the `TaskRun` that this `Task` is running in. |
+| `context.taskRun.uid` | The uid of the `TaskRun` that this `Task` is running in. |
+| `context.task.name` | The name of this `Task`. |
 
 ### `PipelineResource` variables available in a `Task`
 
@@ -108,3 +117,44 @@ variable via `resources.inputs.<resourceName>.<variableName>` or
 | `name` | The name of the resource. |
 | `type` | Type value of `"cloudEvent"`. |
 | `target-uri` | The URI to hit with cloud event payloads. |
+
+## Fields that accept variable substitutions
+
+| CRD | Field |
+| --- | ----- |
+| `Task` | `spec.steps[].name` |
+| `Task` | `spec.steps[].image` |
+| `Task` | `spec.steps[].env.value` |
+| `Task` | `spec.steps[].env.valuefrom.secretkeyref.name` |
+| `Task` | `spec.steps[].env.valuefrom.secretkeyref.key` |
+| `Task` | `spec.steps[].env.valuefrom.configmapkeyref.name` |
+| `Task` | `spec.steps[].env.valuefrom.configmapkeyref.key` |
+| `Task` | `spec.steps[].volumemounts.name` |
+| `Task` | `spec.steps[].volumemounts.mountpath` |
+| `Task` | `spec.steps[].volumemounts.subpath` |
+| `Task` | `spec.volumes[].name` |
+| `Task` | `spec.volumes[].configmap.name` |
+| `Task` | `spec.volumes[].configmap.items[].key` |
+| `Task` | `spec.volumes[].configmap.items[].path` |
+| `Task` | `spec.volumes[].secret.secretname` |
+| `Task` | `spec.volumes[].secret.items[].key` |
+| `Task` | `spec.volumes[].secret.items[].path` |
+| `Task` | `spec.volumes[].persistentvolumeclaim.claimname` |
+| `Task` | `spec.volumes[].projected.sources.configmap.name` |
+| `Task` | `spec.volumes[].projected.sources.secret.name` |
+| `Task` | `spec.volumes[].projected.sources.serviceaccounttoken.audience` |
+| `Task` | `spec.volumes[].csi.nodepublishsecretref.name` |
+| `Task` | `spec.volumes[].csi.volumeattributes.* `|
+| `Task` | `spec.sidecars[].name` |
+| `Task` | `spec.sidecars[].image` |
+| `Task` | `spec.sidecars[].env.value` |
+| `Task` | `spec.sidecars[].env.valuefrom.secretkeyref.name` |
+| `Task` | `spec.sidecars[].env.valuefrom.secretkeyref.key` |
+| `Task` | `spec.sidecars[].env.valuefrom.configmapkeyref.name` |
+| `Task` | `spec.sidecars[].env.valuefrom.configmapkeyref.key` |
+| `Task` | `spec.sidecars[].volumemounts.name` |
+| `Task` | `spec.sidecars[].volumemounts.mountpath` |
+| `Task` | `spec.sidecars[].volumemounts.subpath` |
+| `Pipeline` | `spec.tasks[].params[].value` |
+| `Pipeline` | `spec.tasks[].conditions[].params[].value` |
+| `Pipeline` | `spec.results[].value` |

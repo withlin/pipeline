@@ -17,14 +17,25 @@ limitations under the License.
 package cloudevent
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	tb "github.com/tektoncd/pipeline/internal/builder/v1beta1"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	resourcev1alpha1 "github.com/tektoncd/pipeline/pkg/apis/resource/v1alpha1"
-	"github.com/tektoncd/pipeline/pkg/logging"
 	"github.com/tektoncd/pipeline/test/diff"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
+	"knative.dev/pkg/apis"
+	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
+	"knative.dev/pkg/controller"
+	"knative.dev/pkg/logging"
+	rtesting "knative.dev/pkg/reconciler/testing"
 )
 
 func TestCloudEventDeliveryFromTargets(t *testing.T) {
@@ -88,6 +99,11 @@ func TestSendCloudEvents(t *testing.T) {
 				tb.TaskRunTaskRef("fakeTaskName"),
 			),
 			tb.TaskRunStatus(
+				tb.StatusCondition(apis.Condition{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionUnknown,
+					Reason: "somethingelse",
+				}),
 				tb.TaskRunCloudEvent("http//notattemptedunknown", "", 0, v1beta1.CloudEventConditionUnknown),
 				tb.TaskRunCloudEvent("http//notattemptedfailed", "somehow", 0, v1beta1.CloudEventConditionFailed),
 				tb.TaskRunCloudEvent("http//notattemptedsucceeded", "", 0, v1beta1.CloudEventConditionSent),
@@ -102,6 +118,11 @@ func TestSendCloudEvents(t *testing.T) {
 				tb.TaskRunTaskRef("fakeTaskName"),
 			),
 			tb.TaskRunStatus(
+				tb.StatusCondition(apis.Condition{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionUnknown,
+					Reason: "somethingelse",
+				}),
 				tb.TaskRunCloudEvent("http//notattemptedunknown", "", 1, v1beta1.CloudEventConditionSent),
 				tb.TaskRunCloudEvent("http//notattemptedfailed", "somehow", 0, v1beta1.CloudEventConditionFailed),
 				tb.TaskRunCloudEvent("http//notattemptedsucceeded", "", 0, v1beta1.CloudEventConditionSent),
@@ -145,6 +166,11 @@ func TestSendCloudEventsErrors(t *testing.T) {
 			tb.TaskRunStatus(
 				tb.TaskRunCloudEvent("http//sink1", "", 0, v1beta1.CloudEventConditionUnknown),
 				tb.TaskRunCloudEvent("http//sink2", "", 0, v1beta1.CloudEventConditionUnknown),
+				tb.StatusCondition(apis.Condition{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionUnknown,
+					Reason: "somethingelse",
+				}),
 			),
 		),
 		wantTaskRun: tb.TaskRun("test-taskrun-multiple-cloudeventdelivery",
@@ -156,6 +182,11 @@ func TestSendCloudEventsErrors(t *testing.T) {
 				// Error message is not checked in the Diff below
 				tb.TaskRunCloudEvent("http//sink1", "", 1, v1beta1.CloudEventConditionFailed),
 				tb.TaskRunCloudEvent("http//sink2", "", 1, v1beta1.CloudEventConditionFailed),
+				tb.StatusCondition(apis.Condition{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionUnknown,
+					Reason: "somethingelse",
+				}),
 			),
 		),
 	}}
@@ -249,11 +280,176 @@ func TestInitializeCloudEvents(t *testing.T) {
 	}}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			InitializeCloudEvents(tc.taskRun, tc.pipelineResources)
+			prMap := map[string]*resourcev1alpha1.PipelineResource{}
+			for _, pr := range tc.pipelineResources {
+				prMap[pr.Name] = pr
+			}
+			InitializeCloudEvents(tc.taskRun, prMap)
 			opts := GetCloudEventDeliveryCompareOptions()
 			if d := cmp.Diff(tc.wantTaskRun.Status, tc.taskRun.Status, opts...); d != "" {
 				t.Errorf("Wrong Cloud Events Status %s", diff.PrintWantGot(d))
 			}
 		})
 	}
+}
+
+func TestSendCloudEventWithRetries(t *testing.T) {
+
+	objectStatus := duckv1beta1.Status{
+		Conditions: []apis.Condition{{
+			Type:   apis.ConditionSucceeded,
+			Status: corev1.ConditionTrue,
+		}},
+	}
+
+	tests := []struct {
+		name            string
+		clientBehaviour FakeClientBehaviour
+		object          objectWithCondition
+		wantCEvent      string
+		wantEvent       string
+	}{{
+		name: "test-send-cloud-event-taskrun",
+		clientBehaviour: FakeClientBehaviour{
+			SendSuccessfully: true,
+		},
+		object: &v1beta1.TaskRun{
+			ObjectMeta: metav1.ObjectMeta{
+				SelfLink: "/taskruns/test1",
+			},
+			Status: v1beta1.TaskRunStatus{Status: objectStatus},
+		},
+		wantCEvent: "Validation: valid",
+		wantEvent:  "",
+	}, {
+		name: "test-send-cloud-event-pipelinerun",
+		clientBehaviour: FakeClientBehaviour{
+			SendSuccessfully: true,
+		},
+		object: &v1beta1.PipelineRun{
+			ObjectMeta: metav1.ObjectMeta{
+				SelfLink: "/pipelineruns/test1",
+			},
+			Status: v1beta1.PipelineRunStatus{Status: objectStatus},
+		},
+		wantCEvent: "Validation: valid",
+		wantEvent:  "",
+	}, {
+		name: "test-send-cloud-event-failed",
+		clientBehaviour: FakeClientBehaviour{
+			SendSuccessfully: false,
+		},
+		object: &v1beta1.PipelineRun{
+			Status: v1beta1.PipelineRunStatus{Status: objectStatus},
+		},
+		wantCEvent: "",
+		wantEvent:  "Warning Cloud Event Failure",
+	}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := setupFakeContext(t, tc.clientBehaviour, true)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			err := SendCloudEventWithRetries(ctx, tc.object)
+			if err != nil {
+				t.Fatalf("Unexpected error sending cloud events: %v", err)
+			}
+			ceClient := Get(ctx).(FakeClient)
+			err = checkCloudEvents(t, &ceClient, tc.name, tc.wantCEvent)
+			if err != nil {
+				t.Fatalf(err.Error())
+			}
+			recorder := controller.GetEventRecorder(ctx).(*record.FakeRecorder)
+			err = checkEvents(t, recorder, tc.name, tc.wantEvent)
+			if err != nil {
+				t.Fatalf(err.Error())
+			}
+		})
+	}
+}
+
+func TestSendCloudEventWithRetriesInvalid(t *testing.T) {
+
+	tests := []struct {
+		name       string
+		object     objectWithCondition
+		wantCEvent string
+		wantEvent  string
+	}{{
+		name: "test-send-cloud-event-invalid-taskrun",
+		object: &v1beta1.TaskRun{
+			Status: v1beta1.TaskRunStatus{},
+		},
+		wantCEvent: "Validation: valid",
+		wantEvent:  "",
+	}, {
+		name: "test-send-cloud-event-pipelinerun",
+		object: &v1beta1.PipelineRun{
+			Status: v1beta1.PipelineRunStatus{},
+		},
+		wantCEvent: "Validation: valid",
+		wantEvent:  "",
+	}}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := setupFakeContext(t, FakeClientBehaviour{
+				SendSuccessfully: true,
+			}, true)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			err := SendCloudEventWithRetries(ctx, tc.object)
+			if err == nil {
+				t.Fatalf("Expected an error sending cloud events for invalid object, got none")
+			}
+		})
+	}
+}
+
+func TestSendCloudEventWithRetriesNoClient(t *testing.T) {
+
+	ctx := setupFakeContext(t, FakeClientBehaviour{}, false)
+	err := SendCloudEventWithRetries(ctx, &v1beta1.TaskRun{Status: v1beta1.TaskRunStatus{}})
+	if err == nil {
+		t.Fatalf("Expected an error sending cloud events with no client in the context, got none")
+	}
+	if d := cmp.Diff("No cloud events client found in the context", err.Error()); d != "" {
+		t.Fatalf("Unexpected error message %s", diff.PrintWantGot(d))
+	}
+}
+
+func setupFakeContext(t *testing.T, behaviour FakeClientBehaviour, withClient bool) context.Context {
+	var ctx context.Context
+	ctx, _ = rtesting.SetupFakeContext(t)
+	if withClient {
+		ctx = WithClient(ctx, &behaviour)
+	}
+	return ctx
+}
+
+func eventFromChannel(c chan string, testName string, wantEvent string) error {
+	timer := time.NewTimer(1 * time.Second)
+	select {
+	case event := <-c:
+		if wantEvent == "" {
+			return fmt.Errorf("received event \"%s\" for %s but none expected", event, testName)
+		}
+		if !(strings.HasPrefix(event, wantEvent)) {
+			return fmt.Errorf("expected event \"%s\" but got \"%s\" instead for %s", wantEvent, event, testName)
+		}
+	case <-timer.C:
+		if wantEvent != "" {
+			return fmt.Errorf("received no events for %s but %s expected", testName, wantEvent)
+		}
+	}
+	return nil
+}
+
+func checkEvents(t *testing.T, fr *record.FakeRecorder, testName string, wantEvent string) error {
+	t.Helper()
+	return eventFromChannel(fr.Events, testName, wantEvent)
+}
+
+func checkCloudEvents(t *testing.T, fce *FakeClient, testName string, wantEvent string) error {
+	t.Helper()
+	return eventFromChannel(fce.Events, testName, wantEvent)
 }

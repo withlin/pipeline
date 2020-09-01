@@ -21,12 +21,12 @@ This guide explains how to install Tekton Pipelines. It covers the following top
    * **[`HEAD`]** - this is the bleeding edge. It contains unreleased code that may result
      in unpredictable behavior. To get started, see the [development guide](https://github.com/tektoncd/pipeline/blob/master/DEVELOPMENT.md) instead of this page.
 
-2. If you don't have an existing Kubernetes cluster, set one up, version 1.15 or later:
+2. If you don't have an existing Kubernetes cluster, set one up, version 1.16 or later:
 
    ```bash
    #Example command for creating a cluster on GKE
    gcloud container clusters create $CLUSTER_NAME \
-     --zone=$CLUSTER_ZONE --cluster-version=1.15.11-gke.5
+     --zone=$CLUSTER_ZONE --cluster-version=1.16.9-gke.6
    ```
 
 3. Grant `cluster-admin` permissions to the current user:
@@ -49,6 +49,13 @@ To install Tekton Pipelines on a Kubernetes cluster:
    ```bash
    kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
    ```
+
+   Or, for the nightly release, use:
+
+   ```bash
+   kubectl apply --filename https://storage.googleapis.com/tekton-releases-nightly/pipeline/latest/release.yaml
+   ```
+
    You can install a specific release using `previous/$VERSION_NUMBER`. For example:
 
    ```bash
@@ -96,6 +103,7 @@ for more information.
    ```bash
    oc new-project tekton-pipelines
    oc adm policy add-scc-to-user anyuid -z tekton-pipelines-controller
+   oc adm policy add-scc-to-user anyuid -z tekton-pipelines-webhook
    ```
 1. Install Tekton Pipelines:
 
@@ -235,6 +243,25 @@ data:
   bucket.service.account.field.name: GOOGLE_APPLICATION_CREDENTIALS
 ```
 
+## Configuring CloudEvents notifications
+
+When configured so, Tekton can generate `CloudEvents` for `TaskRun` and `PipelineRun` lifecycle
+events. The only configuration parameter is the URL of the sink. When not set, no notification is
+generated.
+
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-defaults
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/part-of: tekton-pipelines
+data:
+  default-cloud-events-sink: https://my-sink-url
+```
+
 ## Customizing basic execution parameters
 
 You can specify your own values that replace the default service account (`ServiceAccount`), timeout (`Timeout`), and Pod template (`PodTemplate`) values used by Tekton Pipelines in `TaskRun` and `PipelineRun` definitions. To do so, modify the ConfigMap `config-defaults` with your desired values.
@@ -246,6 +273,7 @@ The example below customizes the following:
 - the default `app.kubernetes.io/managed-by` label is applied to all Pods created to execute `TaskRuns`.
 - the default Pod template to include a node selector to select the node where the Pod will be scheduled by default.
   For more information, see [`PodTemplate` in `TaskRuns`](./taskruns.md#specifying-a-pod-template) or [`PodTemplate` in `PipelineRuns`](./pipelineruns.md#specifying-a-pod-template).
+- the default `Workspace` configuration can be set for any `Workspaces` that a Task declares but that a TaskRun does not explicitly provide
 
 ```yaml
 apiVersion: v1
@@ -259,6 +287,8 @@ data:
     nodeSelector:
       kops.k8s.io/instancegroup: build-instance-group
   default-managed-by-label-value: "my-tekton-installation"
+  default-task-run-workspace-binding: |
+    emptyDir: {}
 ```
 
 **Note:** The `_example` key in the provided [config-defaults.yaml](./../config/config-defaults.yaml)
@@ -268,7 +298,7 @@ file lists the keys you can customize along with their default values.
 
 To customize the behavior of the Pipelines Controller, modify the ConfigMap `feature-flags` as follows:
 
-- `disable-affinity-assistant` - set this flag to disable the [Affinity Assistant](./workspaces.md#affinity-assistant-and-specifying-workspace-order-in-a-pipeline)
+- `disable-affinity-assistant` - set this flag to `true` to disable the [Affinity Assistant](./workspaces.md#specifying-workspace-order-in-a-pipeline-and-affinity-assistants)
   that is used to provide Node Affinity for `TaskRun` pods that share workspace volume. 
   The Affinity Assistant is incompatible with other affinity rules
   configured for `TaskRun` pods.
@@ -292,7 +322,7 @@ for each `Step` that does not have its working directory explicitly set with `/w
 For more information, see the [associated issue](https://github.com/tektoncd/pipeline/issues/1836).
 
 - `running-in-environment-with-injected-sidecars`: set this flag to `"true"` to allow the
-Tekton controller to set the `tekon.dev/ready` annotation at pod creation time for 
+Tekton controller to set the `tekton.dev/ready` annotation at pod creation time for 
 TaskRuns with no Sidecars specified. Enabling this option should decrease the time it takes for a TaskRun to
 start running. However, for clusters that use injected sidecars e.g. istio
 enabling this option can lead to unexpected behavior.

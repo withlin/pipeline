@@ -17,10 +17,12 @@ weight: 3
     - [Using the `retries` parameter](#using-the-retries-parameter)
     - [Guard `Task` execution using `Conditions`](#guard-task-execution-using-conditions)
     - [Configuring the failure timeout](#configuring-the-failure-timeout)
-    - [Configuring execution results at the `Task` level](#configuring-execution-results-at-the-task-level)
-  - [Configuring execution results at the `Pipeline` level](#configuring-execution-results-at-the-pipeline-level)
+  - [Using `Results`](#using-results)
+    - [Passing one Task's `Results` into the `Parameters` of another](#passing-one-tasks-results-into-the-parameters-of-another)
+    - [Emitting `Results` from a `Pipeline`](#emitting-results-from-a-pipeline)
   - [Configuring the `Task` execution order](#configuring-the-task-execution-order)
   - [Adding a description](#adding-a-description)
+  - [Adding `Finally` to the `Pipeline`](#adding-finally-to-the-pipeline)
   - [Code examples](#code-examples)
 
 ## Overview
@@ -61,6 +63,8 @@ A `Pipeline` definition supports the following fields:
   - [`results`](#configuring-execution-results-at-the-pipeline-level) - Specifies the location to which
     the `Pipeline` emits its execution results.
   - [`description`](#adding-a-description) - Holds an informative description of the `Pipeline` object.
+  - [`finally`](#adding-finally-to-the-pipeline) - Specifies one or more `Tasks`
+    to be executed in parallel after all other tasks have completed.
 
 [kubernetes-overview]:
   https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/#required-fields
@@ -124,7 +128,7 @@ Parameter names:
 For example, `fooIs-Bar_` is a valid parameter name, but `barIsBa$` or `0banana` are not.
 
 Each declared parameter has a `type` field, which can be set to either `array` or `string`.
-`array` is useful in cases where the number of compiliation flags being supplied to the `Pipeline`
+`array` is useful in cases where the number of compilation flags being supplied to the `Pipeline`
 varies throughout its execution. If no value is specified, the `type` field defaults to `string`.
 When the actual parameter value is supplied, its parsed type is validated against the `type` field.
 The `description` and `default` fields for a `Parameter` are optional.
@@ -229,7 +233,7 @@ as its input, use the optional `from` parameter to specify a list of `Tasks`
 that must execute **before** the `Task` that requires their outputs as its 
 input. When your target `Task` executes, only the version of the desired 
 `PipelineResource` produced by the last `Task` in this list is used. The
-`name` of this output `PipelineReource` output must match the `name` of the
+`name` of this output `PipelineResource` output must match the `name` of the
 input `PipelineResource` specified in the `Task` that ingests it. 
 
 In the example below, the `deploy-app` `Task` ingests the output of the `build-app`
@@ -295,7 +299,7 @@ should retry its execution when it fails. When a `Task` fails, the corresponding
 instructs Tekton to retry executing the `Task` when this happens.
 
 If you expect a `Task` to encounter problems during execution (for example,
-you know that there will be issues with network connectivitity or missing
+you know that there will be issues with network connectivity or missing
 dependencies), set its `retries` parameter to a suitable value greater than 0.
 If you don't explicitly specify a value, Tekton does not attempt to execute
 the failed `Task` again.
@@ -396,37 +400,61 @@ spec:
       Timeout: "0h1m30s"
 ```
 
-### Configuring execution results at the `Task` level
+## Using `Results`
 
-Tasks can emit [`Results`](tasks.md#storing-execution-results) while they execute. You can
-use these `Results` values as parameter values in subsequent `Tasks` within your `Pipeline`
-through [variable substitution](variables.md#variables-available-in-a-pipeline). Tekton infers the
-`Task` order so that the `Task` emitting the referenced `Results` values executes before the
-`Task` that consumes them. 
+Tasks can emit [`Results`](tasks.md#emitting-results) when they execute. A Pipeline can use these
+`Results` for two different purposes:
 
-In the example below, the result of the `previous-task-name` `Task` is declared as `bar-result`:
+1. A Pipeline can pass the `Result` of a `Task` in to the `Parameters` of another.
+2. A Pipeline can itself emit `Results` and include data from the `Results` of its Tasks.
+
+### Passing one Task's `Results` into the `Parameters` of another
+
+Sharing `Results` between `Tasks` in a `Pipeline` happens via
+[variable substitution](variables.md#variables-available-in-a-pipeline) - one `Task` emits
+a `Result` and another receives it as a `Parameter` with a variable such as
+`$(tasks.<task-name>.results.<result-name>)`.
+
+When one `Task` receives the `Results` of another, there is a dependency created between those
+two `Tasks`. In order for the receiving `Task` to get data from another `Task's` `Result`,
+the `Task` producing the `Result` must run first. Tekton enforces this `Task` ordering
+by ensuring that the `Task` emitting the `Result` executes before any `Task` that uses it. 
+
+In the snippet below, a param is provided its value from the `commit` `Result` emitted by the
+`checkout-source` `Task`. Tekton will make sure that the `checkout-source` `Task` runs
+before this one.
 
 ```yaml
 params:
   - name: foo
-    value: "$(tasks.previous-task-name.results.bar-result)"
+    value: "$(tasks.checkout-source.results.commit)"
 ```
 
 For an end-to-end example, see [`Task` `Results` in a `PipelineRun`](../examples/v1beta1/pipelineruns/task_results_example.yaml).
 
-## Configuring execution results at the `Pipeline` level
+### Emitting `Results` from a `Pipeline`
 
-You can configure your `Pipeline` to emit `Results` during its execution as references to
-the `Results` emitted by each `Task` within it. 
+A `Pipeline` can emit `Results` of its own for a variety of reasons - an external
+system may need to read them when the `Pipeline` is complete, they might summarise
+the most important `Results` from the `Pipeline's` `Tasks`, or they might simply
+be used to expose non-critical messages generated during the execution of the `Pipeline`.
+
+A `Pipeline's` `Results` can be composed of one or many `Task` `Results` emitted during
+the course of the `Pipeline's` execution. A `Pipeline` `Result` can refer to its `Tasks'`
+`Results` using a variable of the form `$(tasks.<task-name>.results.<result-name>)`.
+
+After a `Pipeline` has executed the `PipelineRun` will be populated with the `Results`
+emitted by the `Pipeline`. These will be written to the `PipelineRun's`
+`status.pipelineResults` field.
 
 In the example below, the `Pipeline` specifies a `results` entry with the name `sum` that
-references the `Result` emitted by the `second-add` `Task`.
+references the `outputValue` `Result` emitted by the `calculate-sum` `Task`.
 
 ```yaml
   results:
     - name: sum
       description: the sum of all three operands
-      value: $(tasks.second-add.results.sum)
+      value: $(tasks.calculate-sum.results.outputValue)
 ```
 
 For an end-to-end example, see [`Results` in a `PipelineRun`](../examples/v1beta1/pipelineruns/pipelinerun-results.yaml).
@@ -528,6 +556,207 @@ In particular:
 ## Adding a description
 
 The `description` field is an optional field and can be used to provide description of the `Pipeline`.
+
+## Adding `Finally` to the `Pipeline`
+
+You can specify a list of one or more final tasks under `finally` section. Final tasks are guaranteed to be executed
+in parallel after all `PipelineTasks` under `tasks` have completed regardless of success or error. Final tasks are very
+similar to `PipelineTasks` under `tasks` section and follow the same syntax. Each final task must have a
+[valid](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names) `name` and a [taskRef or
+taskSpec](taskruns.md#specifying-the-target-task). For example:
+
+```yaml
+spec:
+  tasks:
+    - name: tests
+      taskRef:
+        Name: integration-test
+  finally:
+    - name: cleanup-test
+      taskRef:
+        Name: cleanup
+```
+
+### Specifying `Workspaces` in Final Tasks
+
+Finally tasks can specify [workspaces](workspaces.md) which `PipelineTasks` might have utilized
+e.g. a mount point for credentials held in Secrets. To support that requirement, you can specify one or more
+`Workspaces` in the `workspaces` field for the final tasks similar to `tasks`.
+
+```yaml
+spec:
+  resources:
+    - name: app-git
+      type: git
+  workspaces:
+    - name: shared-workspace
+  tasks:
+    - name: clone-app-source
+      taskRef:
+        name: clone-app-repo-to-workspace
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+      resources:
+        inputs:
+          - name: app-git
+            resource: app-git
+  finally:
+    - name: cleanup-workspace
+      taskRef:
+        name: cleanup-workspace
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-workspace
+```
+
+### Specifying `Parameters` in Final Tasks
+
+Similar to `tasks`, you can specify [`Parameters`](tasks.md#specifying-parameters) in final tasks:
+
+```yaml
+spec:
+  tasks:
+    - name: tests
+      taskRef:
+        Name: integration-test
+  finally:
+    - name: report-results
+      taskRef:
+        Name: report-results
+      params:
+        - name: url
+          value: "someURL"
+```
+
+### `PipelineRun` Status with `finally`
+
+With `finally`, `PipelineRun` status is calculated based on `PipelineTasks` under `tasks` section and final tasks.
+
+Without `finally`:
+
+| `PipelineTasks` under `tasks` | `PipelineRun` status | Reason |
+| ----------------------------- | -------------------- | ------ |
+| all `PipelineTasks` successful | `true` | `Succeeded` |
+| one or more `PipelineTasks` [skipped](conditions.md) and rest successful | `true` | `Completed` |
+| single failure of `PipelineTask` | `false` | `failed` |
+
+With `finally`:
+
+| `PipelineTasks` under `tasks` | Final Tasks | `PipelineRun` status | Reason |
+| ----------------------------- | ----------- | -------------------- | ------ |
+| all `PipelineTask` successful | all final tasks successful | `true` | `Succeeded` |
+| all `PipelineTask` successful | one or more failure of final tasks | `false` | `Failed` |
+| one or more `PipelineTask` [skipped](conditions.md) and rest successful | all final tasks successful | `true` | `Completed` |
+| one or more `PipelineTask` [skipped](conditions.md) and rest successful | one or more failure of final tasks | `false` | `Failed` |
+| single failure of `PipelineTask` | all final tasks successful | `false` | `failed` |
+| single failure of `PipelineTask` | one or more failure of final tasks | `false` | `failed` |
+
+Overall, `PipelineRun` state transitioning is explained below for respective scenarios:
+
+* All `PipelineTask` and final tasks are successful: `Started` -> `Running` -> `Succeeded`
+* At least one `PipelineTask` skipped and rest successful:  `Started` -> `Running` -> `Completed`
+* One `PipelineTask` failed / one or more final tasks failed: `Started` -> `Running` -> `Failed`
+
+Please refer to the [table](pipelineruns.md#monitoring-execution-status) under Monitoring Execution Status to learn about
+what kind of events are triggered based on the `Pipelinerun` status.
+
+### Known Limitations
+
+### Specifying `Resources` in Final Tasks
+
+Similar to `tasks`, you can use [PipelineResources](#specifying-resources) as inputs and outputs for
+final tasks in the Pipeline. The only difference here is, final tasks with an input resource can not have a `from` clause
+like a `PipelineTask` from `tasks` section. For example:
+
+```yaml
+spec:
+  tasks:
+    - name: tests
+      taskRef:
+        Name: integration-test
+      resources:
+        inputs:
+          - name: source
+            resource: tektoncd-pipeline-repo
+        outputs:
+          - name: workspace
+            resource: my-repo
+  finally:
+    - name: clear-workspace
+      taskRef:
+        Name: clear-workspace
+      resources:
+        inputs:
+          - name: workspace
+            resource: my-repo
+            from: #invalid
+              - tests
+```
+
+### Cannot configure the Final Task execution order
+
+It's not possible to configure or modify the execution order of the final tasks. Unlike `Tasks` in a `Pipeline`,
+all final tasks run simultaneously and start executing once all `PipelineTasks` under `tasks` have settled which means
+no `runAfter` can be specified in final tasks.
+
+### Cannot specify execution `Conditions` in Final Tasks
+
+`Tasks` in a `Pipeline` can be configured to run only if some conditions are satisfied using `conditions`. But the
+final tasks are guaranteed to be executed after all `PipelineTasks` therefore no `conditions` can be specified in
+final tasks.
+
+#### Cannot configure `Task` execution results with `finally`
+
+Final tasks can not be configured to consume `Results` of `PipelineTask` from `tasks` section i.e. the following
+example is not supported right now but we are working on adding support for the same (tracked in issue
+[#2557](https://github.com/tektoncd/pipeline/issues/2557)).
+
+```yaml
+spec:
+  tasks:
+    - name: count-comments-before
+      taskRef:
+        Name: count-comments
+    - name: add-comment
+      taskRef:
+        Name: add-comment
+    - name: count-comments-after
+      taskRef:
+        Name: count-comments
+  finally:
+    - name: check-count
+      taskRef:
+        Name: check-count
+      params:
+        - name: before-count
+          value: $(tasks.count-comments-before.results.count) #invalid
+        - name: after-count
+          value: $(tasks.count-comments-after.results.count) #invalid
+```
+
+#### Cannot configure `Pipeline` result with `finally`
+
+Final tasks can emit `Results` but results emitted from the final tasks can not be configured in the
+[Pipeline Results](#configuring-execution-results-at-the-pipeline-level). We are working on adding support for this
+(tracked in issue [#2710](https://github.com/tektoncd/pipeline/issues/2710)).
+
+```yaml
+  results:
+    - name: comment-count-validate
+      value: $(finally.check-count.results.comment-count-validate)
+```
+
+In this example, `PipelineResults` is set to:
+
+```
+"pipelineResults": [
+  {
+    "name": "comment-count-validate",
+    "value": "$(finally.check-count.results.comment-count-validate)"
+  }
+],
+```
 
 ## Code examples
 

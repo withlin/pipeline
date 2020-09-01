@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -71,8 +70,14 @@ func (dc *basicGitConfig) Set(value string) error {
 	return nil
 }
 
-func (dc *basicGitConfig) Write() error {
-	gitConfigPath := filepath.Join(os.Getenv("HOME"), ".gitconfig")
+// Write builds a .gitconfig file from dc.entries and writes it to disk
+// in the directory provided. If dc.entries is empty then nothing is
+// written.
+func (dc *basicGitConfig) Write(directory string) error {
+	if len(dc.entries) == 0 {
+		return nil
+	}
+	gitConfigPath := filepath.Join(directory, ".gitconfig")
 	gitConfigs := []string{
 		"[credential]\n	helper = store\n",
 	}
@@ -85,7 +90,7 @@ func (dc *basicGitConfig) Write() error {
 		return err
 	}
 
-	gitCredentialsPath := filepath.Join(os.Getenv("HOME"), ".git-credentials")
+	gitCredentialsPath := filepath.Join(directory, ".git-credentials")
 	var gitCredentials []string
 	for _, k := range dc.order {
 		v := dc.entries[k]

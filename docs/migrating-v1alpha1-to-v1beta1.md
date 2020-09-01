@@ -76,7 +76,7 @@ removed entirely, and until this has been resolved, we encourage people to use `
 `PipelineResources` when they can.
 
 _More on the reasoning and what's left to do in
-[Why aren't PipelineResources in Beta?](docs/resources.md#why-arent-pipelineresources-in-beta)._
+[Why aren't PipelineResources in Beta?](resources.md#why-arent-pipelineresources-in-beta)._
 
 To ease migration away from `PipelineResources`
 [some types have an equivalent `Task` in the Catalog](#pipelineresource-equivalent-catalog-tasks).
@@ -205,7 +205,7 @@ You can replace a `cluster` resource with the [`kubeconfig-creator` Catalog `Tas
 
 ## Changes to PipelineResources
 
-In Tekton `v1beta1`, `PipelineResources` have been moved from `spec.input.respources`
+In Tekton `v1beta1`, `PipelineResources` have been moved from `spec.input.resources`
 and `spec.output.resources` to `spec.resources.inputs` and `spec.resources.outputs`,
 respectively.
 

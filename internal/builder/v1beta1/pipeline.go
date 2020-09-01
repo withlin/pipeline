@@ -153,6 +153,25 @@ func PipelineTask(name, taskName string, ops ...PipelineTaskOp) PipelineSpecOp {
 	}
 }
 
+// FinalTask adds a final PipelineTask, with specified name and task name, to the PipelineSpec.
+// Any number of PipelineTask modifier can be passed to transform it.
+func FinalPipelineTask(name, taskName string, ops ...PipelineTaskOp) PipelineSpecOp {
+	return func(ps *v1beta1.PipelineSpec) {
+		pTask := &v1beta1.PipelineTask{
+			Name: name,
+		}
+		if taskName != "" {
+			pTask.TaskRef = &v1beta1.TaskRef{
+				Name: taskName,
+			}
+		}
+		for _, op := range ops {
+			op(pTask)
+		}
+		ps.Finally = append(ps.Finally, *pTask)
+	}
+}
+
 // PipelineResult adds a PipelineResult, with specified name, value and description, to the PipelineSpec.
 func PipelineResult(name, value, description string, ops ...PipelineOp) PipelineSpecOp {
 	return func(ps *v1beta1.PipelineSpec) {
@@ -179,7 +198,20 @@ func PipelineRunResult(name, value string) PipelineRunStatusOp {
 // PipelineTaskSpec sets the TaskSpec on a PipelineTask.
 func PipelineTaskSpec(spec *v1beta1.TaskSpec) PipelineTaskOp {
 	return func(pt *v1beta1.PipelineTask) {
-		pt.TaskSpec = spec
+		if pt.TaskSpec == nil {
+			pt.TaskSpec = &v1beta1.EmbeddedTask{}
+		}
+		pt.TaskSpec.TaskSpec = spec
+	}
+}
+
+// TaskSpecMetadata sets the Metadata on a TaskSpec within PipelineTask.
+func TaskSpecMetadata(metadata v1beta1.PipelineTaskMetadata) PipelineTaskOp {
+	return func(pt *v1beta1.PipelineTask) {
+		if pt.TaskSpec == nil {
+			pt.TaskSpec = &v1beta1.EmbeddedTask{}
+		}
+		pt.TaskSpec.Metadata = metadata
 	}
 }
 
@@ -339,6 +371,13 @@ func PipelineRun(name string, ops ...PipelineRunOp) *v1beta1.PipelineRun {
 func PipelineRunNamespace(namespace string) PipelineRunOp {
 	return func(t *v1beta1.PipelineRun) {
 		t.ObjectMeta.Namespace = namespace
+	}
+}
+
+// PipelineRunSelfLink adds a SelfLink
+func PipelineRunSelfLink(selflink string) PipelineRunOp {
+	return func(tr *v1beta1.PipelineRun) {
+		tr.ObjectMeta.SelfLink = selflink
 	}
 }
 

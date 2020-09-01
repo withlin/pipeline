@@ -53,8 +53,8 @@ A `TaskRun` definition supports the following fields:
     object that provides custom credentials for executing the `TaskRun`.
   - [`params`](#specifying-parameters) - Specifies the desired execution parameters for the `Task`.
   - [`resources`](#specifying-resources) - Specifies the desired `PipelineResource` values.
-    -[`inputs`](#specifying-resources) - Specifies the input resources.
-    -[`outputs`](#specifying-resources) - Specifies the output resources.
+    - [`inputs`](#specifying-resources) - Specifies the input resources.
+    - [`outputs`](#specifying-resources) - Specifies the output resources.
   - [`timeout`](#configuring-the-failure-timeout) - Specifies the timeout before the `TaskRun` fails.
   - [`podTemplate`](#specifying-a-pod-template) - Specifies a [`Pod` template](podtemplates.md) to use as
     the starting point for configuring the `Pods` for the `Task`.
@@ -132,7 +132,7 @@ spec:
           name: my-app-image
 ```
 
-And here is an example of specifing `Resources` by embedding their definitions:
+And here is an example of specifying `Resources` by embedding their definitions:
 
 ```yaml
 spec:
@@ -155,7 +155,7 @@ point for the `Pod` in which the container images specified in your `Task` will 
 customize the `Pod` configuration specifically for that `TaskRun`.
 
 In the following example, the `Task` specifies a `volumeMount` (`my-cache`) object, also provided by the `TaskRun`,
-using a `PersistentVolumeClaim` volume. A specific scheduler is also configured in the  `SchedulerName` field. 
+using a `PersistentVolumeClaim` volume. A specific scheduler is also configured in the  `SchedulerName` field.
 The `Pod` executes with regular (non-root) user permissions.
 
 ```yaml
@@ -254,18 +254,23 @@ For more information, see the [`LimitRange` code example](../examples/v1beta1/ta
 
 ## Configuring the failure timeout
 
-You can use the `timeout` field to set the `TaskRun's` desired timeout value in minutes.
-If you do not specify this value in the `TaskRun`, the global default timeout value applies.
-If you set the timeout to 0, the `TaskRun` fails immediately upon encountering an error.
+You can use the `timeout` field to set the `TaskRun's` desired timeout value. If you do not specify this 
+value for the `TaskRun`, the global default timeout value applies. If you set the timeout to 0, the `TaskRun` will 
+have no timeout and will run until it completes successfully or fails from an error.
 
 The global default timeout is set to 60 minutes when you first install Tekton. You can set
 a different global default timeout value using the `default-timeout-minutes` field in
-[`config/config-defaults.yaml`](./../config/config-defaults.yaml).
+[`config/config-defaults.yaml`](./../config/config-defaults.yaml). If you set the global timeout to 0, 
+all `TaskRuns` that do not have a timeout set will have no timeout and will run until it completes successfully 
+or fails from an error.
 
 The `timeout` value is a `duration` conforming to Go's
 [`ParseDuration`](https://golang.org/pkg/time/#ParseDuration) format. For example, valid
-values are `1h30m`, `1h`, `1m`, and `60s`. If you set the global timeout to 0, all `TaskRuns`
-that do not have an idividual timeout set will fail immediately upon encountering an error.
+values are `1h30m`, `1h`, `1m`, `60s`, and `0`. 
+
+If a `TaskRun` runs longer than its timeout value, the pod associated with the `TaskRun` will be deleted. This 
+means that the logs of the `TaskRun` are not preserved. The deletion of the `TaskRun` pod is necessary in order to 
+stop `TaskRun` step containers from running. 
 
 ### Specifying `ServiceAccount' credentials
 
@@ -281,7 +286,7 @@ For more information, see [`ServiceAccount`](auth.md).
 ## Monitoring execution status
 
 As your `TaskRun` executes, its `status` field accumulates information on the execution of each `Step`
-as well as the `TaskRun` as a whole. This information includes start and stop times, exit codes, the 
+as well as the `TaskRun` as a whole. This information includes start and stop times, exit codes, the
 fully-qualified name of the container image, and the corresponding digest.
 
 **Note:** If any `Pods` have been [`OOMKilled`](https://kubernetes.io/docs/tasks/administer-cluster/out-of-resource/)
@@ -311,11 +316,32 @@ steps:
     startedAt: "2019-08-12T18:22:54Z"
   ```
 
+The following tables shows how to read the overall status of a `TaskRun`:
+
+`status`|`reason`|`completionTime` is set|Description
+:-------|:-------|:---------------------:|--------------:
+Unknown|Started|No|The TaskRun has just been picked up by the controller.
+Unknown|Pending|No|The TaskRun is waiting on a Pod in status Pending.
+Unknown|Running|No|The TaskRun has been validate and started to perform its work.
+Unknown|TaskRunCancelled|No|The user requested the TaskRun to be cancelled. Cancellation has not be done yet.
+True|Succeeded|Yes|The TaskRun completed successfully.
+False|Failed|Yes|The TaskRun failed because one of the steps failed.
+False|\[Error message\]|No|The TaskRun encountered a non-permanent error, and it's still running. It may ultimately succeed.
+False|\[Error message\]|Yes|The TaskRun failed with a permanent error (usually validation).
+False|TaskRunCancelled|Yes|The TaskRun was cancelled successfully.
+False|TaskRunTimeout|Yes|The TaskRun timed out.
+
+When a `TaskRun` changes status, [events](events.md#taskruns) are triggered accordingly.
+
 ### Monitoring `Steps`
 
 If multiple `Steps` are defined in the `Task` invoked by the `TaskRun`, you can monitor their execution
-status in the `steps.results` field using the following command, where `<name>` is the name of the target
+status in the `status.steps` field using the following command, where `<name>` is the name of the target
 `TaskRun`:
+
+```bash
+kubectl get taskrun <name> -o yaml
+```
 
 The exact Task Spec used to instantiate the TaskRun is also included in the Status for full auditability.
 
@@ -346,9 +372,13 @@ Status:
 
 ## Cancelling a `TaskRun`
 
-To cancel a `TaskRun` that's currently executing, update its definition
-to mark it as cancelled. When you do so, all running `Pods` associated with
-that `TaskRun` are deleted. For example:
+To cancel a `TaskRun` that's currently executing, update its status to mark it as cancelled. 
+
+When you cancel a TaskRun, the running pod associated with that `TaskRun` is deleted. This 
+means that the logs of the `TaskRun` are not preserved. The deletion of the `TaskRun` pod is necessary 
+in order to stop `TaskRun` step containers from running. 
+
+Example of cancelling a `TaskRun`:
 
 ```yaml
 apiVersion: tekton.dev/v1alpha1

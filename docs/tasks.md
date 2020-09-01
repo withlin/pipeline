@@ -48,7 +48,7 @@ A `Task` declaration includes the following elements:
 - [Resources](#specifying-resources)
 - [Steps](#defining-steps)
 - [Workspaces](#specifying-workspaces)
-- [Results](#storing-execution-results)
+- [Results](#emitting-results)
 
 ## Configuring a `Task`
 
@@ -71,8 +71,8 @@ A `Task` definition supports the following fields:
     - [`inputs`](#specifying-resources) - Specifies the resources ingested by the `Task`.
     - [`outputs`](#specifying-resources) - Specifies the resources produced by the `Task`.
   - [`workspaces`](#specifying-workspaces) - Specifies paths to volumes required by the `Task`.
-  - [`results`](#emitting-results) - Specifies the file to which the `Tasks` writes its execution results.
-  - [`volumes`](#specifying-volumes) - Specifies one or more volumes that will be available available to the `Steps` in the `Task`.
+  - [`results`](#emitting-results) - Specifies the names under which `Tasks` write execution results.
+  - [`volumes`](#specifying-volumes) - Specifies one or more volumes that will be available to the `Steps` in the `Task`.
   - [`stepTemplate`](#specifying-a-step-template) - Specifies a `Container` step definition to use as the basis for all `Steps` in the `Task`.
   - [`sidecars`](#specifying-sidecars) - Specifies `Sidecar` containers to run alongside the `Steps` in the `Task`.
 
@@ -255,7 +255,7 @@ Parameter names:
 For example, `fooIs-Bar_` is a valid parameter name, but `barIsBa$` or `0banana` are not.
 
 Each declared parameter has a `type` field, which can be set to either `array` or `string`. `array` is useful in cases where the number
-of compiliation flags being supplied to a task varies throughout the `Task's` execution. If not specified, the `type` field defaults to
+of compilation flags being supplied to a task varies throughout the `Task's` execution. If not specified, the `type` field defaults to
 `string`. When the actual parameter value is supplied, its parsed type is validated against the `type` field.
 
 The following example illustrates the use of `Parameters` in a `Task`. The `Task` declares two input parameters named `flags`
@@ -387,9 +387,22 @@ and the [`Workspaces` in a `TaskRun`](../examples/v1beta1/taskruns/workspace.yam
 
 ### Emitting results
 
-Use the `results` field to specify one or more files in which the `Task` stores its execution results. These files are
-stored in the `/tekton/results` directory. This directory is created automatically at execution time if at least one file
-is specified in the `results` field. To specify a file, provide its `name` and `description`.
+A Task is able to emit string results that can be viewed by users and passed to other Tasks in a Pipeline. These
+results have a wide variety of potential uses. To highlight just a few examples from the Tekton Catalog: the
+[`git-clone` Task](https://github.com/tektoncd/catalog/blob/master/task/git-clone/0.1/git-clone.yaml) emits a
+cloned commit SHA as a result, the [`generate-build-id` Task](https://github.com/tektoncd/catalog/blob/master/task/generate-build-id/0.1/generate-build-id.yaml)
+emits a randomized ID as a result, and the [`kaniko` Task](https://github.com/tektoncd/catalog/tree/master/task/kaniko/0.1)
+emits a container image digest as a result. In each case these results convey information for users to see when
+looking at their TaskRuns and can also be used in a Pipeline to pass data along from one Task to the next.
+
+To define a `Task's` results, use the `results` field. Each `results` entry in the `Task's` YAML corresponds to a
+file that the `Task` should stores the result in. These files should be created by a `Task` in the
+`/tekton/results` directory. The directory itself is created automatically if the `Task` has
+a `results` field but it's the responsibility of the `Task` to generate its contents.
+
+It's important to note that Tekton does not perform any processing on the contents of results; they are emitted
+verbatim from your Task including any leading or trailing whitespace characters. Make sure to write only the
+precise string you want returned from your `Task` into the `/tekton/results/` files that your `Task` creates.
 
 In the example below, the `Task` specifies two files in the `results` field:
 `current-date-unix-timestamp` and `current-date-human-readable`.
@@ -414,7 +427,7 @@ spec:
       script: |
         #!/usr/bin/env bash
         date +%s | tee /tekton/results/current-date-unix-timestamp
-    - name: print-date-humman-readable
+    - name: print-date-human-readable
       image: bash:latest
       script: |
         #!/usr/bin/env bash
@@ -526,10 +539,10 @@ Sidecars, just like `Steps`, can also run scripts:
 
 ```yaml
 sidecars:
-  image: busybox
-  name: hello-sidecar
-  script: |
-    echo 'Hello from sidecar!'
+  - image: busybox
+    name: hello-sidecar
+    script: |
+      echo 'Hello from sidecar!'
 ```
 **Note:** Tekton's current `Sidecar` implementation contains a bug.
 Tekton uses a container image named `nop` to terminate `Sidecars`.
@@ -567,7 +580,7 @@ variable values as follows:
 
 #### Substituting `Array` parameters
 
-You can expand referenced paramters of type `array` using the star operator. To do so, add the operator (`[*]`)
+You can expand referenced parameters of type `array` using the star operator. To do so, add the operator (`[*]`)
 to the named parameter to insert the array elements in the spot of the reference string.
 
 For example, given a `params` field with the contents listed below, you can expand
@@ -605,7 +618,7 @@ A valid reference to the `build-args` parameter is isolated and in an eligible f
 ```yaml
  - name: build-step
       image: gcr.io/cloud-builders/some-image
-      args: ["build", "$(params.build-args[*])", "additonalArg"]
+      args: ["build", "$(params.build-args[*])", "additionalArg"]
 ```
 
 #### Substituting `Workspace` paths
@@ -627,7 +640,7 @@ $(workspaces.myworkspace.volume)
 
 You can substitute `Volume` names and [types](https://kubernetes.io/docs/concepts/storage/volumes/#types-of-volumes)
 by parameterizing them. Tekton supports popular `Volume` types such as `ConfigMap`, `Secret`, and `PersistentVolumeClaim`.
-See this [example](#using-kubernetes-configmap-as-volume-source) to find out how to perform this type of substitution
+See this [example](#mounting-a-configmap-as-a-volume-source) to find out how to perform this type of substitution
 in your `Task.`
 
 ## Code examples

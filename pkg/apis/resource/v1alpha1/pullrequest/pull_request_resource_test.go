@@ -37,20 +37,22 @@ func TestPullRequest_NewResource(t *testing.T) {
 		tb.PipelineResourceSpecParam("url", url),
 		tb.PipelineResourceSpecParam("provider", "github"),
 		tb.PipelineResourceSpecSecretParam("authToken", "test-secret-key", "test-secret-name"),
+		tb.PipelineResourceSpecParam("disable-strict-json-comments", "true"),
 	))
-	got, err := pullrequest.NewResource("override-with-pr:latest", pr)
+	got, err := pullrequest.NewResource("test-resource", "override-with-pr:latest", pr)
 	if err != nil {
 		t.Fatalf("Error creating storage resource: %s", err.Error())
 	}
 
 	want := &pullrequest.Resource{
-		Name:                  pr.Name,
-		Type:                  resourcev1alpha1.PipelineResourceTypePullRequest,
-		URL:                   url,
-		Provider:              "github",
-		Secrets:               pr.Spec.SecretParams,
-		PRImage:               "override-with-pr:latest",
-		InsecureSkipTLSVerify: false,
+		Name:                      "test-resource",
+		Type:                      resourcev1alpha1.PipelineResourceTypePullRequest,
+		URL:                       url,
+		Provider:                  "github",
+		Secrets:                   pr.Spec.SecretParams,
+		PRImage:                   "override-with-pr:latest",
+		InsecureSkipTLSVerify:     false,
+		DisableStrictJSONComments: true,
 	}
 	if d := cmp.Diff(want, got); d != "" {
 		t.Error(diff.PrintWantGot(d))
@@ -59,7 +61,7 @@ func TestPullRequest_NewResource(t *testing.T) {
 
 func TestPullRequest_NewResource_error(t *testing.T) {
 	pr := tb.PipelineResource("foo", tb.PipelineResourceSpec(resourcev1alpha1.PipelineResourceTypeGit))
-	if _, err := pullrequest.NewResource("override-with-pr:latest", pr); err == nil {
+	if _, err := pullrequest.NewResource("test-resource", "override-with-pr:latest", pr); err == nil {
 		t.Error("NewPullRequestResource() want error, got nil")
 	}
 }
@@ -131,6 +133,21 @@ func containerTestCases(mode string) []testcase {
 			WorkingDir: pipeline.WorkspaceDir,
 			Command:    []string{"/ko-app/pullrequest-init"},
 			Args:       []string{"-url", "https://example.com", "-path", workspace, "-mode", mode, "-insecure-skip-tls-verify=true"},
+			Env:        []corev1.EnvVar{},
+		}}},
+	}, {
+		in: &pullrequest.Resource{
+			Name:                      "strict-json-comments",
+			URL:                       "https://example.com",
+			PRImage:                   "override-with-pr:latest",
+			DisableStrictJSONComments: true,
+		},
+		out: []v1beta1.Step{{Container: corev1.Container{
+			Name:       "pr-source-strict-json-comments-78c5n",
+			Image:      "override-with-pr:latest",
+			WorkingDir: pipeline.WorkspaceDir,
+			Command:    []string{"/ko-app/pullrequest-init"},
+			Args:       []string{"-url", "https://example.com", "-path", workspace, "-mode", mode, "-disable-strict-json-comments=true"},
 			Env:        []corev1.EnvVar{},
 		}}},
 	}}

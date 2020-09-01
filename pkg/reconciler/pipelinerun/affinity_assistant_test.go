@@ -17,30 +17,26 @@ limitations under the License.
 package pipelinerun
 
 import (
-	"fmt"
+	"context"
 	"testing"
 
+	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	"github.com/tektoncd/pipeline/pkg/pod"
-	"github.com/tektoncd/pipeline/pkg/reconciler"
 	"github.com/tektoncd/pipeline/pkg/system"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fakek8s "k8s.io/client-go/kubernetes/fake"
+	logtesting "knative.dev/pkg/logging/testing"
 )
 
 // TestCreateAndDeleteOfAffinityAssistant tests to create and delete an Affinity Assistant
 // for a given PipelineRun with a PVC workspace
 func TestCreateAndDeleteOfAffinityAssistant(t *testing.T) {
 	c := Reconciler{
-		Base: &reconciler.Base{
-			KubeClientSet: fakek8s.NewSimpleClientset(),
-			Images:        pipeline.Images{},
-			Logger:        zap.NewExample().Sugar(),
-		},
+		KubeClientSet: fakek8s.NewSimpleClientset(),
+		Images:        pipeline.Images{},
 	}
 
 	workspaceName := "testws"
@@ -60,12 +56,12 @@ func TestCreateAndDeleteOfAffinityAssistant(t *testing.T) {
 		},
 	}
 
-	err := c.createAffinityAssistants(testPipelineRun.Spec.Workspaces, testPipelineRun, testPipelineRun.Namespace)
+	err := c.createAffinityAssistants(context.Background(), testPipelineRun.Spec.Workspaces, testPipelineRun, testPipelineRun.Namespace)
 	if err != nil {
 		t.Errorf("unexpected error from createAffinityAssistants: %v", err)
 	}
 
-	expectedAffinityAssistantName := affinityAssistantStatefulSetNamePrefix + fmt.Sprintf("%s-%s", workspaceName, pipelineRunName)
+	expectedAffinityAssistantName := getAffinityAssistantName(workspaceName, testPipelineRun.Name)
 	_, err = c.KubeClientSet.AppsV1().StatefulSets(testPipelineRun.Namespace).Get(expectedAffinityAssistantName, metav1.GetOptions{})
 	if err != nil {
 		t.Errorf("unexpected error when retrieving StatefulSet: %v", err)
@@ -103,7 +99,7 @@ func TestThatCustomTolerationsAndNodeSelectorArePropagatedToAffinityAssistant(t 
 		},
 	}
 
-	stsWithTolerationsAndNodeSelector := affinityAssistantStatefulSet("test-assistant", prWithCustomPodTemplate, "mypvc")
+	stsWithTolerationsAndNodeSelector := affinityAssistantStatefulSet("test-assistant", prWithCustomPodTemplate, "mypvc", "nginx")
 
 	if len(stsWithTolerationsAndNodeSelector.Spec.Template.Spec.Tolerations) != 1 {
 		t.Errorf("expected Tolerations in the StatefulSet")
@@ -123,7 +119,7 @@ func TestThatTheAffinityAssistantIsWithoutNodeSelectorAndTolerations(t *testing.
 		Spec: v1beta1.PipelineRunSpec{},
 	}
 
-	stsWithoutTolerationsAndNodeSelector := affinityAssistantStatefulSet("test-assistant", prWithoutCustomPodTemplate, "mypvc")
+	stsWithoutTolerationsAndNodeSelector := affinityAssistantStatefulSet("test-assistant", prWithoutCustomPodTemplate, "mypvc", "nginx")
 
 	if len(stsWithoutTolerationsAndNodeSelector.Spec.Template.Spec.Tolerations) != 0 {
 		t.Errorf("unexpected Tolerations in the StatefulSet")
@@ -131,6 +127,22 @@ func TestThatTheAffinityAssistantIsWithoutNodeSelectorAndTolerations(t *testing.
 
 	if len(stsWithoutTolerationsAndNodeSelector.Spec.Template.Spec.NodeSelector) != 0 {
 		t.Errorf("unexpected NodeSelector in the StatefulSet")
+	}
+}
+
+// TestThatAffinityAssistantNameIsNoLongerThan53 tests that the Affinity Assistant Name
+// is no longer than 53 chars. This is a limitation with StatefulSet.
+// See https://github.com/kubernetes/kubernetes/issues/64023
+// This is because the StatefulSet-controller adds a label with the name of the StatefulSet
+// plus 10 chars for a hash. Labels in Kubernetes can not be longer than 63 chars.
+// Typical output from the example below is affinity-assistant-0384086f62
+func TestThatAffinityAssistantNameIsNoLongerThan53(t *testing.T) {
+	affinityAssistantName := getAffinityAssistantName(
+		"pipeline-workspace-name-that-is-quite-long",
+		"pipelinerun-with-a-long-custom-name")
+
+	if len(affinityAssistantName) > 53 {
+		t.Errorf("affinity assistant name can not be longer than 53 chars")
 	}
 }
 
@@ -142,14 +154,14 @@ func TestDisableAffinityAssistant(t *testing.T) {
 	}{{
 		description: "Default behaviour: A missing disable-affinity-assistant flag should result in false",
 		configMap: &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: pod.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
 			Data:       map[string]string{},
 		},
 		expected: false,
 	}, {
 		description: "Setting disable-affinity-assistant to false should result in false",
 		configMap: &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: pod.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
 			Data: map[string]string{
 				featureFlagDisableAffinityAssistantKey: "false",
 			},
@@ -158,7 +170,7 @@ func TestDisableAffinityAssistant(t *testing.T) {
 	}, {
 		description: "Setting disable-affinity-assistant to true should result in true",
 		configMap: &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: pod.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
+			ObjectMeta: metav1.ObjectMeta{Name: config.GetFeatureFlagsConfigName(), Namespace: system.GetNamespace()},
 			Data: map[string]string{
 				featureFlagDisableAffinityAssistantKey: "true",
 			},
@@ -167,15 +179,14 @@ func TestDisableAffinityAssistant(t *testing.T) {
 	}} {
 		t.Run(tc.description, func(t *testing.T) {
 			c := Reconciler{
-				Base: &reconciler.Base{
-					KubeClientSet: fakek8s.NewSimpleClientset(
-						tc.configMap,
-					),
-					Images: pipeline.Images{},
-					Logger: zap.NewExample().Sugar(),
-				},
+				KubeClientSet: fakek8s.NewSimpleClientset(
+					tc.configMap,
+				),
+				Images: pipeline.Images{},
 			}
-			if result := c.isAffinityAssistantDisabled(); result != tc.expected {
+			store := config.NewStore(logtesting.TestLogger(t))
+			store.OnConfigChanged(tc.configMap)
+			if result := c.isAffinityAssistantDisabled(store.ToContext(context.Background())); result != tc.expected {
 				t.Errorf("Expected %t Received %t", tc.expected, result)
 			}
 		})

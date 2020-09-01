@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
-	"github.com/tektoncd/pipeline/pkg/reconciler/pipelinerun/resources"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
@@ -112,7 +112,7 @@ func TestPipelineRunTimeout(t *testing.T) {
 	}
 
 	t.Logf("Waiting for PipelineRun %s in namespace %s to be timed out", pipelineRun.Name, namespace)
-	if err := WaitForPipelineRunState(c, pipelineRun.Name, timeout, FailedWithReason(resources.ReasonTimedOut, pipelineRun.Name), "PipelineRunTimedOut"); err != nil {
+	if err := WaitForPipelineRunState(c, pipelineRun.Name, timeout, FailedWithReason(v1beta1.PipelineRunReasonTimedOut.String(), pipelineRun.Name), "PipelineRunTimedOut"); err != nil {
 		t.Errorf("Error waiting for PipelineRun %s to finish: %s", pipelineRun.Name, err)
 	}
 
@@ -196,12 +196,26 @@ func TestTaskRunTimeout(t *testing.T) {
 		},
 	}
 	if _, err := c.TaskRunClient.Create(taskRun); err != nil {
-		t.Fatalf("Failed to create TaskRun `%s`: %s", "run-giraffe", err)
+		t.Fatalf("Failed to create TaskRun `%s`: %s", taskRun.Name, err)
 	}
 
 	t.Logf("Waiting for TaskRun %s in namespace %s to complete", "run-giraffe", namespace)
-	if err := WaitForTaskRunState(c, "run-giraffe", FailedWithReason("TaskRunTimeout", "run-giraffe"), "TaskRunTimeout"); err != nil {
+	if err := WaitForTaskRunState(c, taskRun.Name, FailedWithReason(v1beta1.TaskRunReasonTimedOut.String(), taskRun.Name), v1beta1.TaskRunReasonTimedOut.String()); err != nil {
 		t.Errorf("Error waiting for TaskRun %s to finish: %s", "run-giraffe", err)
+	}
+
+	tr, err := c.TaskRunClient.Get(taskRun.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Errorf("Error retrieving TaskRun %s: %v", taskRun.Name, err)
+	}
+
+	for _, step := range tr.Status.Steps {
+		if step.Terminated == nil {
+			t.Errorf("TaskRun %s step %s does not have a terminated state but should", taskRun.Name, step.Name)
+		}
+		if d := cmp.Diff(step.Terminated.Reason, v1beta1.TaskRunReasonTimedOut.String()); d != "" {
+			t.Fatalf("-got, +want: %v", d)
+		}
 	}
 }
 
@@ -301,7 +315,7 @@ func TestPipelineTaskTimeout(t *testing.T) {
 	}
 
 	t.Logf("Waiting for PipelineRun %s with PipelineTask timeout in namespace %s to fail", pipelineRun.Name, namespace)
-	if err := WaitForPipelineRunState(c, pipelineRun.Name, timeout, FailedWithReason(resources.ReasonFailed, pipelineRun.Name), "PipelineRunTimedOut"); err != nil {
+	if err := WaitForPipelineRunState(c, pipelineRun.Name, timeout, FailedWithReason(v1beta1.PipelineRunReasonFailed.String(), pipelineRun.Name), "PipelineRunTimedOut"); err != nil {
 		t.Fatalf("Error waiting for PipelineRun %s to finish: %s", pipelineRun.Name, err)
 	}
 
