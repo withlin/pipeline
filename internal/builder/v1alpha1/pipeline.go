@@ -116,6 +116,10 @@ func PipelineRunCancelled(spec *v1alpha1.PipelineRunSpec) {
 	spec.Status = v1alpha1.PipelineRunSpecStatusCancelled
 }
 
+func PipelineRunPause(spec *v1alpha1.PipelineRunSpec){
+	spec.Status = v1alpha1.PipelineRunSpecStatusPause
+}
+
 // PipelineDeclaredResource adds a resource declaration to the Pipeline Spec,
 // with the specified name and type.
 func PipelineDeclaredResource(name string, t v1alpha1.PipelineResourceType) PipelineSpecOp {

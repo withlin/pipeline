@@ -98,6 +98,10 @@ func (pr *PipelineRun) IsCancelled() bool {
 	return pr.Spec.Status == PipelineRunSpecStatusCancelled
 }
 
+func (pr *PipelineRun) IsPause() bool {
+	return pr.Spec.Status == PipelineRunSpecStatusPause
+}
+
 // GetRunKey return the pipelinerun key for timeout handler map
 func (pr *PipelineRun) GetRunKey() string {
 	// The address of the pointer is a threadsafe unique identifier for the pipelinerun
@@ -193,6 +197,8 @@ const (
 	// PipelineRunSpecStatusCancelled indicates that the user wants to cancel the task,
 	// if not already cancelled or terminated
 	PipelineRunSpecStatusCancelled = "PipelineRunCancelled"
+
+	PipelineRunSpecStatusPause = "PipelineRunPause"
 )
 
 // PipelineRef can be used to refer to a specific instance of a Pipeline.
@@ -236,6 +242,8 @@ const (
 	// ReasonStopping indicates that no new Tasks will be scheduled by the controller, and the
 	// pipeline will stop once all running tasks complete their work
 	PipelineRunReasonStopping PipelineRunReason = "PipelineRunStopping"
+
+	PipelineRunReasonPause PipelineRunReason = "Paused"
 )
 
 func (t PipelineRunReason) String() string {

@@ -155,7 +155,7 @@ func (pt PipelineTask) HashKey() string {
 }
 
 func (pt PipelineTask) Deps() []string {
-	deps := []string{}
+	var deps []string
 	deps = append(deps, pt.RunAfter...)
 	if pt.Resources != nil {
 		for _, rd := range pt.Resources.Inputs {

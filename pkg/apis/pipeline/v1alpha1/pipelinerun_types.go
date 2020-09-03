@@ -103,6 +103,7 @@ const (
 	// PipelineRunSpecStatusCancelled indicates that the user wants to cancel the task,
 	// if not already cancelled or terminated
 	PipelineRunSpecStatusCancelled = v1beta1.PipelineRunSpecStatusCancelled
+	PipelineRunSpecStatusPause = v1beta1.PipelineRunSpecStatusPause
 )
 
 // PipelineResourceRef can be used to refer to a specific instance of a Resource

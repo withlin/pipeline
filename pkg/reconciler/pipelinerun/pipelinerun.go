@@ -283,6 +283,7 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun) err
 	for key, value := range pipelineMeta.Labels {
 		pr.ObjectMeta.Labels[key] = value
 	}
+	//给响应的给当前的pipeline-run 打上label，例如："tekton.dev/pipeline=witlin-test"
 	pr.ObjectMeta.Labels[pipeline.GroupName+pipeline.PipelineLabelKey] = pipelineMeta.Name
 
 	// Propagate annotations from Pipeline to PipelineRun.
@@ -293,6 +294,7 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun) err
 		pr.ObjectMeta.Annotations[key] = value
 	}
 
+	//构建dag任务
 	d, err := dag.Build(v1beta1.PipelineTaskList(pipelineSpec.Tasks))
 	if err != nil {
 		// This Run has failed, so we need to mark it as failed and stop reconciling it
@@ -466,6 +468,7 @@ func (c *Reconciler) reconcile(ctx context.Context, pr *v1beta1.PipelineRun) err
 	}
 
 	if err := c.runNextSchedulableTask(ctx, pr, d, dfinally, pipelineState, as); err != nil {
+
 		return err
 	}
 
@@ -520,11 +523,19 @@ func (c *Reconciler) runNextSchedulableTask(ctx context.Context, pr *v1beta1.Pip
 	}
 	resources.ApplyTaskResults(nextRprts, resolvedResultRefs)
 
+	//在pipeline-run这里增加一个状态，在这里需要check一下该状态是否pause，是--->不创建这个task，否----->创建。
+	if pr.IsPause() {
+		recorder.Eventf(pr, corev1.EventTypeNormal, "PipelineRunPause", "Pause PipelineRun %q",pr.Name)
+		return nil
+	}
+
 	for _, rprt := range nextRprts {
 		if rprt == nil {
 			continue
 		}
+
 		if rprt.ResolvedConditionChecks == nil || rprt.ResolvedConditionChecks.IsSuccess() {
+
 			rprt.TaskRun, err = c.createTaskRun(ctx, rprt, pr, as.StorageBasePath(pr))
 			if err != nil {
 				recorder.Eventf(pr, corev1.EventTypeWarning, "TaskRunCreationFailed", "Failed to create TaskRun %q: %v", rprt.TaskRunName, err)

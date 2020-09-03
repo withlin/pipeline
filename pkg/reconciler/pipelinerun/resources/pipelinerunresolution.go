@@ -41,6 +41,7 @@ const (
 	// ReasonConditionCheckFailed indicates that the reason for the failure status is that the
 	// condition check associated to the pipeline task evaluated to false
 	ReasonConditionCheckFailed = "ConditionCheckFailed"
+	ConditionSucceeded         = "Succeeded"
 )
 
 // TaskNotFoundError indicates that the resolution failed because a referenced Task couldn't be retrieved
@@ -176,6 +177,20 @@ func (t ResolvedPipelineRunTask) IsSkipped(state PipelineRunState, d *dag.Graph)
 		}
 	}
 	return false
+}
+
+// IsPaused returns true only if the PipelineRunTask itself has a TaskRun associated
+func (t ResolvedPipelineRunTask) IsPaused() bool {
+	if t.TaskRun == nil {
+		return false
+	}
+
+	c := t.TaskRun.Status.GetCondition(apis.ConditionSucceeded)
+	if c == nil {
+		return false
+	}
+
+	return true
 }
 
 // ToMap returns a map that maps pipeline task name to the resolved pipeline run task
@@ -521,6 +536,7 @@ func GetPipelineConditionStatus(pr *v1beta1.PipelineRun, state PipelineRunState,
 	// 2. All tasks are done and at least one has failed or has been cancelled -> Failed
 	// 3. All tasks are done or are skipped (i.e. condition check failed).-> Success
 	// 4. A Task or Condition is running right now or there are things left to run -> Running
+	// 5. Running -> Pause.
 	if pr.IsTimedOut() {
 		return &apis.Condition{
 			Type:    apis.ConditionSucceeded,
@@ -595,8 +611,10 @@ func GetPipelineConditionStatus(pr *v1beta1.PipelineRun, state PipelineRunState,
 	// pipeline stays in running state until all final tasks are done before transitioning to failed state
 	if cancelledTasks > 0 || (failedTasks > 0 && state.checkTasksDone(dfinally)) {
 		reason = v1beta1.PipelineRunReasonStopping.String()
-	} else {
+	} else if pr.IsPause() {
 		reason = v1beta1.PipelineRunReasonRunning.String()
+	} else {
+		reason = v1beta1.PipelineRunReasonPause.String()
 	}
 	return &apis.Condition{
 		Type:   apis.ConditionSucceeded,
