@@ -525,7 +525,7 @@ func (c *Reconciler) runNextSchedulableTask(ctx context.Context, pr *v1beta1.Pip
 
 	//在pipeline-run这里增加一个状态，在这里需要check一下该状态是否pause，是--->不创建这个task，否----->创建。
 	if pr.IsPause() {
-		recorder.Eventf(pr, corev1.EventTypeNormal, "PipelineRunPause", "Pause PipelineRun %q",pr.Name)
+		recorder.Eventf(pr, corev1.EventTypeNormal, "PipelineRunPause", "Pause PipelineRun %q", pr.Name)
 		return nil
 	}
 
