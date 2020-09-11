@@ -1164,6 +1164,7 @@ func TestReconcileOnPausedPipelineRun(t *testing.T) {
 	defer prt.Cancel()
 
 	wantEvents := []string{
+		"Normal Started",
 		"Normal PipelineRunPause Pause PipelineRun \"test-pipeline-run-paused\"",
 	}
 	reconciledRun, _ := prt.reconcileRun("foo", "test-pipeline-run-paused", wantEvents, false)
